@@ -148,6 +148,25 @@ const data = {
       options: '4GB RAM, 6GB RAM'
     },
     {
+      id: 'p12',
+      clientId: 'client1',
+      name: 'Office Laptop',
+      code: 'LAP-1',
+      category: 'Computers & Laptops',
+      subcategory: 'Laptops',
+      price: 45000,
+      status: 'active',
+      sizes: '512GB, 16GB RAM',
+      colors: 'Black',
+      options: 'Brand new',
+      specGroups: [
+        { key: 'storage', label: 'Storage', field: 'size', values: ['512GB'] },
+        { key: 'ram', label: 'RAM', field: 'size', values: ['16GB RAM'] },
+        { key: 'color', label: 'Color', field: 'color', values: ['Black'] },
+        { key: 'condition', label: 'Condition', field: 'option', values: ['Brand new'] }
+      ]
+    },
+    {
       id: 'p3',
       clientId: 'client1',
       name: 'Hidden Item',
@@ -474,6 +493,26 @@ const sendTextForConversation = async (conv, text) => {
   await handleProductflowCallback(data, client, fashionSpecConversation, ctx, 'spec:color:0');
   assert.match(ctx.sent.at(-1).text, /Order Confirmation/);
   assert.doesNotMatch(ctx.sent.at(-1).text, /RAM|Option:/i);
+
+  const singleChoiceLaptopConversation = {
+    id: 'conv-laptop-single-choice',
+    telegramChatId: 'chat-laptop-single-choice',
+    customer: { name: 'Laptop Buyer' },
+    shopperLanguage: 'english',
+    stage: 'greeting',
+    stageState: {}
+  };
+  await handleProductflowCallback(data, client, singleChoiceLaptopConversation, ctx, 'category:computers_laptops');
+  assert.match(ctx.sent.at(-1).text, /Office Laptop/);
+  assert.doesNotMatch(ctx.sent.at(-1).text, /Choose a Computers/i);
+  await handleProductflowCallback(data, client, singleChoiceLaptopConversation, ctx, 'order:p12');
+  await sendTextForConversation(singleChoiceLaptopConversation, 'Laptop Buyer, Bole Atlas, Addis Ababa, 0911998877');
+  await sendTextForConversation(singleChoiceLaptopConversation, '1');
+  assert.match(ctx.sent.at(-1).text, /Order Confirmation/);
+  assert.match(ctx.sent.at(-1).text, /Storage: 512GB/);
+  assert.match(ctx.sent.at(-1).text, /RAM: 16GB RAM/);
+  assert.match(ctx.sent.at(-1).text, /Color: Black/);
+  assert.match(ctx.sent.at(-1).text, /Condition: Brand new/);
 
   data.customers.push({ id: 'cust-rec', clientId: client.id, telegramChatId: 'chat-rec', name: 'Rec Buyer' });
   data.productRecommendations = [{

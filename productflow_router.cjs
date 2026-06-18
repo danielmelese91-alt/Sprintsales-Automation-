@@ -156,6 +156,7 @@ function normalizeProduct(raw) {
     sizes: Array.isArray(raw.sizes) ? raw.sizes.join(', ') : (raw.sizes || ''),
     options: Array.isArray(raw.options) ? raw.options.join(', ') : (raw.options || raw.variants || ''),
     colors: Array.isArray(raw.colors) ? raw.colors.join(', ') : (raw.colors || ''),
+    specGroups: Array.isArray(raw.specGroups) ? raw.specGroups : [],
     isActive: isExplicitlyActive || !isExplicitlyInactive,
     description: raw.description || '',
   };
@@ -227,7 +228,7 @@ const activeProducts = client => {
   return raw.filter(p => isProductVisible(p) === true);
 };
 
-const slug = value => (value || '').toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+const slug = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 const normalizeKey = value => String(value || '')
   .toLowerCase()
   .replace(/&/g, ' and ')
@@ -1184,6 +1185,11 @@ const inappropriateSpecValue = (product, field, value) => {
   return false;
 };
 
+const specKey = value => String(value || '')
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '') || 'option';
+
 const productSpecValues = (product, field) => {
   const raw = field === 'size' ? product?.sizes : field === 'color' ? product?.colors : product?.options;
   const values = (Array.isArray(raw) ? raw : String(raw || '').split(/[,|/;\n]+/))
@@ -1193,14 +1199,98 @@ const productSpecValues = (product, field) => {
   return values.filter(value => !inappropriateSpecValue(product, field, value));
 };
 
+const productSpecGroups = product => {
+  const rawGroups = Array.isArray(product?.specGroups) ? product.specGroups : [];
+  const groups = rawGroups
+    .map(group => {
+      const field = ['size', 'color', 'option'].includes(String(group?.field || '').toLowerCase())
+        ? String(group.field).toLowerCase()
+        : 'option';
+      const key = specKey(group?.key || group?.name || group?.label || field);
+      const label = String(group?.label || group?.name || group?.key || (field === 'size' ? 'Size' : field === 'color' ? 'Color' : 'Option')).trim();
+      const values = (Array.isArray(group?.values) ? group.values : String(group?.values || '').split(/[,|/;\n]+/))
+        .map(value => String(value || '').trim())
+        .filter(Boolean)
+        .filter((value, index, arr) => arr.findIndex(item => item.toLowerCase() === value.toLowerCase()) === index)
+        .filter(value => !inappropriateSpecValue(product, field, value))
+        .slice(0, 12);
+      return { key, label, field, values };
+    })
+    .filter(group => group.key && group.label && group.values.length);
+  if (groups.length) return groups;
+  return [
+    { key: 'size', label: 'Size', field: 'size', values: productSpecValues(product, 'size') },
+    { key: 'color', label: 'Color', field: 'color', values: productSpecValues(product, 'color') },
+    { key: 'option', label: 'Option', field: 'option', values: productSpecValues(product, 'option') }
+  ].filter(group => group.values.length);
+};
+
+const specGroupByKey = (product, key) =>
+  productSpecGroups(product).find(group => group.key === specKey(key));
+
+const stateSpecValue = (state = {}, key = '') => {
+  const normalized = specKey(key);
+  if (normalized === 'size') return state.size || '';
+  if (normalized === 'color') return state.color || '';
+  if (normalized === 'option') return state.option || '';
+  return state.specSelections?.[normalized] || '';
+};
+
+const setStateSpecValue = (state = {}, group = {}, value = '') => {
+  const normalized = specKey(group.key);
+  if (normalized === 'size') state.size = value;
+  else if (normalized === 'color') state.color = value;
+  else if (normalized === 'option') state.option = value;
+  else {
+    state.specSelections ||= {};
+    state.specSelections[normalized] = value;
+  }
+  state.specSelectionLabels ||= {};
+  state.specSelectionLabels[normalized] = group.label || group.key || 'Option';
+  state.specSelectionFields ||= {};
+  state.specSelectionFields[normalized] = group.field || 'option';
+  return state;
+};
+
+const clearStateSpecValue = (state = {}, key = '') => {
+  const normalized = specKey(key);
+  if (normalized === 'size') state.size = '';
+  else if (normalized === 'color') state.color = '';
+  else if (normalized === 'option') state.option = '';
+  else if (state.specSelections) delete state.specSelections[normalized];
+  return state;
+};
+
+const applySingleValueSpecDefaults = (state = {}, product = {}) => {
+  for (const group of productSpecGroups(product)) {
+    if (group.values.length === 1 && !stateSpecValue(state, group.key)) {
+      setStateSpecValue(state, group, group.values[0]);
+    }
+  }
+  return state;
+};
+
+const orderSpecSelections = (state = {}, product = {}) => {
+  applySingleValueSpecDefaults(state, product);
+  return productSpecGroups(product)
+    .map(group => ({
+      key: group.key,
+      label: group.label,
+      field: group.field,
+      value: stateSpecValue(state, group.key)
+    }))
+    .filter(item => item.value);
+};
+
 const requiredOrderFields = (state, product) => {
+  applySingleValueSpecDefaults(state, product);
   const fields = [];
   if (!state.customerName || !state.phone || !state.address) fields.push('contact');
   if (state.awaitingDeliveryClarification) fields.push('delivery_area');
   if (!state.quantity) fields.push('quantity');
-  if (productSpecValues(product, 'size').length && !state.size) fields.push('size');
-  if (productSpecValues(product, 'color').length && !state.color) fields.push('color');
-  if (productSpecValues(product, 'option').length && !state.option) fields.push('option');
+  for (const group of productSpecGroups(product)) {
+    if (group.values.length > 1 && !stateSpecValue(state, group.key)) fields.push(`spec_${group.key}`);
+  }
   return fields;
 };
 
@@ -1236,20 +1326,20 @@ const orderFieldPrompt = (field, product, customerName = '') => {
   }
   if (field === 'delivery_area') return deliveryClarificationText({});
   if (field === 'quantity') return `${t(client, 'ORDER_QUANTITY_PROMPT')}\n\n${t(client, 'ORDER_QUANTITY_HELP')}`;
-  const values = productSpecValues(product, field);
-  const label = field === 'size' ? 'size' : field === 'color' ? 'color' : 'option';
+  const group = String(field || '').startsWith('spec_') ? specGroupByKey(product, field.replace(/^spec_/, '')) : specGroupByKey(product, field);
+  const values = group?.values || productSpecValues(product, field);
+  const label = group?.label || (field === 'size' ? 'size' : field === 'color' ? 'color' : 'option');
   return `${t(client, 'ORDER_OPTION_PROMPT', { optionType: label, productName: product?.name || product?.code || 'this product' })}\n\n${values.join(', ')}`;
 };
 const orderFieldSequence = product => [
   'contact',
   'quantity',
-  ...(productSpecValues(product, 'size').length ? ['size'] : []),
-  ...(productSpecValues(product, 'color').length ? ['color'] : []),
-  ...(productSpecValues(product, 'option').length ? ['option'] : [])
+  ...productSpecGroups(product).filter(group => group.values.length > 1).map(group => `spec_${group.key}`)
 ];
 
 const orderFieldHasValue = (state = {}, field) => {
   if (field === 'contact') return Boolean(state.customerName || state.phone || state.address);
+  if (String(field || '').startsWith('spec_')) return Boolean(stateSpecValue(state, field.replace(/^spec_/, '')));
   return Boolean(state[field]);
 };
 
@@ -1274,7 +1364,8 @@ const clearOrderField = (state = {}, field) => {
     delete state.awaitingDeliveryClarification;
     delete state.deliveryCandidates;
   } else if (field) {
-    state[field] = '';
+    if (String(field).startsWith('spec_')) clearStateSpecValue(state, field.replace(/^spec_/, ''));
+    else state[field] = '';
   }
   return state;
 };
@@ -1289,11 +1380,12 @@ const addOrderNavRows = (rows, state = {}, product = {}, orderId = '') => {
 };
 
 const specButtons = (field, product, orderId, state = {}) => {
-  const values = productSpecValues(product, field);
+  const group = String(field || '').startsWith('spec_') ? specGroupByKey(product, field.replace(/^spec_/, '')) : specGroupByKey(product, field);
+  const values = group?.values || productSpecValues(product, field);
   if (!values.length) return [];
   const rows = values.map((value, index) => ([{
     text: value.slice(0, 40),
-    callback_data: `productflow:spec:${field}:${index}`
+    callback_data: `productflow:spec:${group?.key || field}:${index}`
   }]));
   return addOrderNavRows(rows, state, product, orderId);
 };
@@ -1435,6 +1527,11 @@ async function handleCategoryBrowse(client, conversation, param) {
   const category = (param || '').replace(/_/g, ' ');
   const categoryRecord = findPopulatedCategory(client, param);
   if (categoryRecord?.subcategories?.length) {
+    if (categoryRecord.subcategories.length === 1) {
+      const onlySubcategory = categoryRecord.subcategories[0];
+      const products = productsInCategory(client, categoryRecord.name, onlySubcategory.name);
+      return await showProductPage(client, conversation, categoryRecord.name, products, 0, onlySubcategory.name);
+    }
     const buttons = categoryRecord.subcategories.slice(0, 18).map(subcategory => ([{
       text: labelWithIcon(subcategory.name, ` (${subcategory.productCount})`),
       callback_data: `productflow:subcategory:${slug(categoryRecord.name)}:${slug(subcategory.name)}`
@@ -2040,7 +2137,9 @@ async function handleProductflowMessage(data, client, conversation, ctx, text) {
     }
     state.quantity = value;
   } else {
-    value = extractField(text, field);
+    const specField = String(field || '').startsWith('spec_') ? field.replace(/^spec_/, '') : field;
+    const group = String(field || '').startsWith('spec_') ? specGroupByKey(product, specField) : specGroupByKey(product, specField);
+    value = extractField(text, group?.field || specField);
     if (!value) {
       return {
         handled: true,
@@ -2048,9 +2147,12 @@ async function handleProductflowMessage(data, client, conversation, ctx, text) {
         buttons: orderPromptButtons(field, product, orderId, state)
       };
     }
-    if (field === 'size') state.size = value;
-    if (field === 'color') state.color = value;
-    if (field === 'option') state.option = value;
+    if (group) setStateSpecValue(state, group, value);
+    else {
+      if (field === 'size') state.size = value;
+      if (field === 'color') state.color = value;
+      if (field === 'option') state.option = value;
+    }
   }
 
   conversation.stageState = state;
@@ -2089,10 +2191,12 @@ async function handleSpecChoice(data, client, conversation, param) {
   if (field === 'quantity') {
     const qty = parseInt(rawValue, 10);
     if (Number.isFinite(qty) && qty > 0 && qty <= 99) state.quantity = String(qty);
-  } else if (['size', 'color', 'option'].includes(field)) {
-    const values = productSpecValues(product, field);
+  } else {
+    const group = specGroupByKey(product, field);
+    const values = group?.values || (['size', 'color', 'option'].includes(field) ? productSpecValues(product, field) : []);
     const selected = values[parseInt(rawValue, 10)];
-    if (selected) state[field] = selected;
+    if (selected && group) setStateSpecValue(state, group, selected);
+    else if (selected && ['size', 'color', 'option'].includes(field)) state[field] = selected;
   }
 
   conversation.stageState = state;
@@ -2257,6 +2361,17 @@ async function showOrderConfirmation(data, client, conversation, state) {
   const discount = calculateDiscount(data, client, conversation, product, subtotal, state);
   const discountedSubtotal = Math.max(0, subtotal - Number(discount.amount || 0));
   const total = discountedSubtotal + deliveryFee;
+  const selectedSpecs = orderSpecSelections(state, product);
+  const selectedSize = selectedSpecs
+    .filter(item => item.field === 'size')
+    .map(item => item.value)
+    .join(', ') || state.size || '';
+  const selectedColor = selectedSpecs
+    .find(item => item.field === 'color')?.value || state.color || '';
+  const selectedOption = selectedSpecs
+    .filter(item => item.field === 'option')
+    .map(item => item.value)
+    .join(', ') || state.option || '';
 
   const order = {
     id: state.orderId,
@@ -2271,9 +2386,11 @@ async function showOrderConfirmation(data, client, conversation, state) {
     productCode: state.productCode,
     productName: state.productName,
     quantity,
-    selectedSize: state.size || '',
-    selectedColor: state.color || '',
-    selectedOption: state.option || '',
+    selectedSize,
+    selectedColor,
+    selectedOption,
+    selectedSpecs,
+    selectedSpecMap: Object.fromEntries(selectedSpecs.map(item => [item.key, item.value])),
     unitPrice: String(unitPrice),
     mainSubtotal: String(subtotal),
     addOns: Array.isArray(state.order?.addOns) ? state.order.addOns : [],
@@ -2308,9 +2425,15 @@ async function showOrderConfirmation(data, client, conversation, state) {
   if (order.productCode) reply += `${t(client, 'PRODUCT_CODE', { productCode: order.productCode })}\n`;
   reply += `${t(client, 'CONFIRM_UNIT_PRICE', { unitPrice })}\n`;
   reply += `${t(client, 'CONFIRM_QUANTITY', { quantity })}\n`;
-  if (order.selectedSize) reply += `${t(client, 'CONFIRM_SIZE', { size: order.selectedSize })}\n`;
-  if (order.selectedColor) reply += `${t(client, 'CONFIRM_COLOR', { color: order.selectedColor })}\n`;
-  if (order.selectedOption) reply += `${t(client, 'CONFIRM_OPTION', { option: order.selectedOption })}\n`;
+  if (selectedSpecs.length) {
+    selectedSpecs.forEach(item => {
+      reply += `${item.label}: ${item.value}\n`;
+    });
+  } else {
+    if (order.selectedSize) reply += `${t(client, 'CONFIRM_SIZE', { size: order.selectedSize })}\n`;
+    if (order.selectedColor) reply += `${t(client, 'CONFIRM_COLOR', { color: order.selectedColor })}\n`;
+    if (order.selectedOption) reply += `${t(client, 'CONFIRM_OPTION', { option: order.selectedOption })}\n`;
+  }
   reply += `\n${t(client, 'CONFIRM_CUSTOMER')}\n`;
   reply += `${t(client, 'CONFIRM_NAME', { customerName: order.customerName })}\n`;
   reply += `${t(client, 'CONFIRM_PHONE', { phone: order.phone })}\n`;
@@ -2479,9 +2602,13 @@ async function handleConfirmOrder(data, client, conversation, orderId) {
       `Quantity: ${order.quantity}`,
       `Customer: ${order.customerName}`,
       `Phone: ${order.phone}`,
-      order.selectedSize ? `Size/option: ${order.selectedSize}` : '',
-      order.selectedColor ? `Color: ${order.selectedColor}` : '',
-      order.selectedOption ? `Option: ${order.selectedOption}` : '',
+      ...(Array.isArray(order.selectedSpecs) && order.selectedSpecs.length
+        ? order.selectedSpecs.map(item => `${item.label || 'Option'}: ${item.value}`)
+        : [
+          order.selectedSize ? `Size/option: ${order.selectedSize}` : '',
+          order.selectedColor ? `Color: ${order.selectedColor}` : '',
+          order.selectedOption ? `Option: ${order.selectedOption}` : ''
+        ]),
       `Address: ${order.deliveryLocation}`,
       order.awaitingDeliveryFee ? 'Action: confirm/set delivery fee before customer payment.' : '',
       order.deliveryArea ? `Delivery area: ${order.deliveryArea}` : '',

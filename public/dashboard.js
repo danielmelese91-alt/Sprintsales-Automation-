@@ -635,6 +635,114 @@ function incompatibleSpecForFamily(family,field,value){
 function cleanSpecCurrentValue(field,current,family){
   return csvValues(current).filter(function(v){return!incompatibleSpecForFamily(family,field,v)}).join(', ');
 }
+function specKey(value){return String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'option'}
+function specGroupInputId(key){return'prod-spec-'+specKey(key)}
+function productSpecGroupsProfile(cat,sub,name){
+  var text=String((cat||'')+' '+(sub||'')+' '+(name||'')).toLowerCase();
+  var profile=productSpecProfile(cat,[sub,name].filter(Boolean).join(' '));
+  if(/\b(phones?|smartphones?|iphone|samsung|tecno|infinix|xiaomi|redmi|laptops?|computers?|desktop|tablets?)\b/.test(text)){
+    var laptopLike=/\b(laptops?|computers?|desktop|pc|notebook)\b/.test(text);
+    var phoneLike=/\b(phones?|smartphones?|iphone|samsung|tecno|infinix|xiaomi|redmi)\b/.test(text);
+    var groups=[
+      {key:'storage',label:'Storage',field:'size',values:PRODUCT_SPEC_PRESETS.electronicsStorage},
+      {key:'ram',label:'RAM',field:'size',values:PRODUCT_SPEC_PRESETS.electronicsRam},
+      {key:'color',label:'Color',field:'color',values:['Black','White','Silver','Gold','Blue','Green','Purple','Graphite','Gray']},
+      {key:'condition',label:'Condition',field:'option',values:PRODUCT_SPEC_PRESETS.electronicsCondition}
+    ];
+    if(!laptopLike&&phoneLike)groups=groups.filter(function(g){return g.key!=='ram'||true});
+    return groups;
+  }
+  return [
+    {key:'size',label:profile.sizeLabel,field:'size',values:profile.sizeValues},
+    {key:'color',label:profile.colorLabel,field:'color',values:profile.colorValues},
+    {key:'option',label:profile.optionLabel,field:'option',values:profile.optionValues}
+  ];
+}
+function productSavedSpecGroups(p){
+  var raw=p&&p.specGroups;
+  if(typeof raw==='string'){try{raw=JSON.parse(raw)}catch(_e){raw=[]}}
+  if(!Array.isArray(raw))raw=[];
+  return raw.map(function(g){
+    return {
+      key:specKey(g.key||g.name||g.label),
+      label:g.label||g.name||g.key||'Option',
+      field:g.field||'option',
+      values:csvValues(Array.isArray(g.values)?g.values.join(', '):g.values)
+    };
+  }).filter(function(g){return g.key&&g.values.length});
+}
+function draftSpecGroups(draft){
+  if(!draft)return[];
+  var raw=draft['prod-spec-groups']||draft.specGroups;
+  if(!raw)return[];
+  try{return JSON.parse(raw)}catch(_e){return[]}
+}
+function fallbackSpecValueForGroup(group,p,draft){
+  var saved=productSavedSpecGroups(p).find(function(g){return g.key===specKey(group.key)});
+  if(saved)return saved.values.join(', ');
+  var fromDraft=draftSpecGroups(draft).find(function(g){return specKey(g.key)===specKey(group.key)});
+  if(fromDraft)return csvValues(Array.isArray(fromDraft.values)?fromDraft.values.join(', '):fromDraft.values).join(', ');
+  var legacy=group.field==='size'?(p?p.sizes:(draft&&draft['prod-sizes'])):group.field==='color'?(p?p.colors:(draft&&draft['prod-colors'])):(p?(p.options||p.variants):(draft&&draft['prod-options']));
+  var values=csvValues(legacy);
+  if(group.key==='ram')values=values.filter(function(v){return/\bram\b/i.test(v)});
+  if(group.key==='storage')values=values.filter(function(v){return!/\bram\b/i.test(v)&&/\b(?:\d+\s*(?:gb|tb)|storage|ssd|hdd)\b/i.test(v)});
+  if(group.key==='condition')values=values.filter(function(v){return/\b(?:brand new|used|refurbished|like new|good)\b/i.test(v)});
+  return values.join(', ');
+}
+function currentSpecGroupValues(){
+  var values={};
+  document.querySelectorAll('[data-spec-group-key]').forEach(function(input){
+    values[input.dataset.specGroupKey]=input.value||'';
+  });
+  return values;
+}
+function activeSpecGroupsProfile(){
+  var category=(document.getElementById('prod-category-select')||{}).value||'';
+  var subcategory=(document.getElementById('prod-subcategory-select')||{}).value||'';
+  var nameHint=(document.getElementById('prod-name')||{}).value||'';
+  return productSpecGroupsProfile(category,subcategory,nameHint);
+}
+function specGroupsPanelHtml(groups,p,draft,current){
+  current=current||{};
+  var html='<input id="prod-sizes" type="hidden" value=""><input id="prod-colors" type="hidden" value=""><input id="prod-options" type="hidden" value="">';
+  html+=groups.map(function(group){
+    var id=specGroupInputId(group.key);
+    var value=current[group.key]!==undefined?current[group.key]:fallbackSpecValueForGroup(group,p,draft);
+    return specSelectionPanel(id,group.label,group.values,value,'Type custom '+String(group.label||'option').toLowerCase(),group);
+  }).join('');
+  return html;
+}
+function collectProductSpecPayload(){
+  var groups=activeSpecGroupsProfile().map(function(group){
+    var id=specGroupInputId(group.key);
+    var values=csvValues((document.getElementById(id)||{}).value);
+    return {
+      key:specKey(group.key),
+      label:group.label,
+      field:group.field||'option',
+      values:values
+    };
+  }).filter(function(group){return group.values.length});
+  var sizes=[],colors=[],options=[];
+  groups.forEach(function(group){
+    if(group.field==='size')sizes=sizes.concat(group.values);
+    else if(group.field==='color')colors=colors.concat(group.values);
+    else options=options.concat(group.values);
+  });
+  return {
+    groups:groups,
+    sizes:[...new Set(sizes)].join(', '),
+    colors:[...new Set(colors)].join(', '),
+    options:[...new Set(options)].join(', ')
+  };
+}
+function syncLegacySpecFields(){
+  var payload=collectProductSpecPayload();
+  setCsvValues('prod-sizes',csvValues(payload.sizes));
+  setCsvValues('prod-colors',csvValues(payload.colors));
+  setCsvValues('prod-options',csvValues(payload.options));
+  return payload;
+}
 function specChipGroup(id,values){
   var selected=selectedSpecSet(id);
   return '<div class="flex gap-1.5 flex-wrap mt-2">'+values.map(function(v){
@@ -642,27 +750,22 @@ function specChipGroup(id,values){
     return '<button type="button" class="spec-chip '+(active?'selected':'')+'" onclick="toggleSpecValue(\''+id+'\',\''+jsQuote(v)+'\')">'+esc(v)+'</button>';
   }).join('')+'</div>';
 }
-function specSelectionPanel(id,label,values,current,placeholder){
+function specSelectionPanel(id,label,values,current,placeholder,group){
+  var data=group?' data-spec-group-key="'+esc(specKey(group.key))+'" data-spec-group-field="'+esc(group.field||'option')+'" data-spec-group-label="'+esc(group.label||label||'Option')+'"':'';
   return '<div><label class="text-xs text-slate-400 block mb-1">'+esc(label)+'</label>'+
-    '<input id="'+id+'" type="hidden" value="'+esc(current||'')+'">'+
+    '<input id="'+id+'" type="hidden" value="'+esc(current||'')+'"'+data+'>'+
     specChipGroup(id,values)+
     '<div class="mt-2"><label class="text-xs text-slate-500 inline-flex items-center gap-1"><input type="checkbox" onchange="toggleCustomSpec(\''+id+'\')" id="'+id+'-custom-toggle"> Custom</label>'+
     '<div id="'+id+'-custom-wrap" class="hidden mt-1 flex gap-1"><input id="'+id+'-custom-input" class="field text-xs" placeholder="'+esc(placeholder||'Type custom option')+'"><button type="button" class="btn btn-ghost text-xs" onclick="addCustomSpecValue(\''+id+'\')">Add</button></div></div>'+
     '<button type="button" class="btn btn-ghost text-[11px] px-2 py-1 mt-2 text-red-300" onclick="clearSpecField(\''+id+'\'); refreshSpecChips()">Clear</button></div>';
 }
 function refreshSpecChips(){
-  var category=(document.getElementById('prod-category-select')||{}).value||'';
-  var subcategory=(document.getElementById('prod-subcategory-select')||{}).value||'';
-  var nameHint=(document.getElementById('prod-name')||{}).value||'';
-  var profile=productSpecProfile(category, [subcategory,nameHint].filter(Boolean).join(' '));
-  var family=productSpecFamilyFromText(category,subcategory,nameHint);
-  var size=document.getElementById('spec-size-panel'),color=document.getElementById('spec-color-panel'),opt=document.getElementById('spec-option-panel');
-  var currentSize=cleanSpecCurrentValue('size',(document.getElementById('prod-sizes')||{}).value,family);
-  var currentColor=cleanSpecCurrentValue('color',(document.getElementById('prod-colors')||{}).value,family);
-  var currentOption=cleanSpecCurrentValue('option',(document.getElementById('prod-options')||{}).value,family);
-  if(size)size.innerHTML=specSelectionPanel('prod-sizes',profile.sizeLabel,profile.sizeValues,currentSize,'Type custom size');
-  if(color)color.innerHTML=specSelectionPanel('prod-colors',profile.colorLabel,profile.colorValues,currentColor,'Type custom color');
-  if(opt)opt.innerHTML=specSelectionPanel('prod-options',profile.optionLabel,profile.optionValues,currentOption,'Type custom option');
+  var panel=document.getElementById('spec-groups-panel');
+  if(!panel)return;
+  var current=currentSpecGroupValues();
+  var groups=activeSpecGroupsProfile();
+  panel.innerHTML=specGroupsPanelHtml(groups,null,null,current);
+  syncLegacySpecFields();
 }
 function toggleSpecValue(id,value){
   var values=csvValues((document.getElementById(id)||{}).value);
@@ -1010,7 +1113,7 @@ function showProductForm(editId){
   var catOptions='<option value="">Select Category</option>'+cats.map(function(c){return'<option value="'+esc(c)+'"'+(initialCategory===c?' selected':'')+'>'+esc(c)+'</option>'}).join('');
   var subOptions=renderSubcategoryOptions(initialCategory,initialSubcategory);
   var statusVal=p?(p.isActive===false?'draft':(p.stockQuantity!=null&&p.stockQuantity<=0?'out_of_stock':'active')):((draft&&draft['prod-status'])||'active');
-  var specProfile=productSpecProfile(initialCategory,initialSubcategory);
+  var specGroups=productSpecGroupsProfile(initialCategory,initialSubcategory,p?p.name:((draft&&draft['prod-name'])||''));
   container.innerHTML=
   '<div class="card p-6 mb-6">'+
   '<h3 class="text-white font-semibold mb-4">'+(p?'Edit Product':'New Product')+'</h3>'+
@@ -1051,11 +1154,9 @@ function showProductForm(editId){
   '<div><label class="text-xs text-slate-400 block mb-1">Image URL (alternative)</label><input id="prod-image-url" class="field" value="'+esc(p&&p.imageUrl?p.imageUrl:'')+'" placeholder="https://..."><p class="text-xs text-slate-500 mt-0.5">Or paste an image URL</p></div>'+
   '</div>'+
 
-  // Row 6: Sizes + Colors
-  '<div class="grid grid-cols-1 md:grid-cols-3 gap-3">'+
-  '<div id="spec-size-panel">'+specSelectionPanel('prod-sizes',specProfile.sizeLabel,specProfile.sizeValues,p?p.sizes||'':(draft&&draft['prod-sizes'])||'','Type custom size')+'</div>'+
-  '<div id="spec-color-panel">'+specSelectionPanel('prod-colors',specProfile.colorLabel,specProfile.colorValues,p?p.colors||'':(draft&&draft['prod-colors'])||'','Type custom color')+'</div>'+
-  '<div id="spec-option-panel">'+specSelectionPanel('prod-options',specProfile.optionLabel,specProfile.optionValues,p?p.options||p.variants||'':(draft&&draft['prod-options'])||'','Type custom option')+'</div>'+
+  // Row 6: Product-specific options
+  '<div id="spec-groups-panel" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">'+
+  specGroupsPanelHtml(specGroups,p,draft,{})+
   '</div>'+
 
   '<div class="rounded-lg border border-slate-700 p-3"><p class="text-sm font-semibold text-white mb-2"><i class="fas fa-tag text-sprint-400 mr-2"></i>Discount eligibility</p><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-300">'+
@@ -1102,6 +1203,8 @@ function collectProductDraft(){
   var ids=['prod-code','prod-name','prod-category-select','prod-subcategory-select','prod-price','prod-cost-price','prod-stock','prod-status','prod-desc','prod-sizes','prod-colors','prod-options'];
   var draft={};
   ids.forEach(function(id){var el=document.getElementById(id);if(el)draft[id]=el.value});
+  var payload=collectProductSpecPayload();
+  draft['prod-spec-groups']=JSON.stringify(payload.groups);
   return draft;
 }
 function saveProductDraft(){
@@ -1127,9 +1230,11 @@ async function saveProduct(id){
   fd.append('price',String(Number(document.getElementById('prod-price').value)||0));
   fd.append('costPrice',String(Number(document.getElementById('prod-cost-price').value)||0));
   fd.append('stockQuantity',String(Math.max(0,Number(document.getElementById('prod-stock').value)||0)));
-  fd.append('sizes',document.getElementById('prod-sizes').value.trim());
-  fd.append('colors',document.getElementById('prod-colors').value.trim());
-  fd.append('options',(document.getElementById('prod-options')||{}).value?.trim?.()||'');
+  var specs=collectProductSpecPayload();
+  fd.append('sizes',specs.sizes);
+  fd.append('colors',specs.colors);
+  fd.append('options',specs.options);
+  fd.append('specGroups',JSON.stringify(specs.groups));
   fd.append('description',document.getElementById('prod-desc').value.trim());
   fd.append('discountNewBuyer',String(Boolean((document.getElementById('prod-disc-new')||{}).checked)));
   fd.append('discountRepeatBuyer',String(Boolean((document.getElementById('prod-disc-repeat')||{}).checked)));
@@ -1458,7 +1563,7 @@ function renderDeliveryTab(c){
   '<div><label class="text-xs text-slate-400 block mb-1">Delivery Pricing Mode</label><select id="delivery-mode" class="field" onchange="toggleDeliveryModeFields()">'+
   [{v:'fixed_addis',t:'One fixed Addis Ababa fee'},{v:'location_zones',t:'Grouped prices by Addis location'},{v:'manual',t:'Manual confirmation'}].map(function(m){return'<option value="'+m.v+'"'+(mode===m.v?' selected':'')+'>'+m.t+'</option>'}).join('')+'</select><p class="text-xs text-slate-500 mt-1">Choose one pricing system. Fixed Addis and location-group pricing cannot run at the same time.</p></div>'+
   '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">'+
-  '<div id="delivery-fixed-panel"><label class="text-xs text-slate-400 block mb-1">Fixed Addis Delivery Fee (ETB)</label><input id="delivery-addis-fee" class="field" type="number" min="0" value="'+esc(delivery.addis_delivery_fee||'300')+'"></div>'+
+  '<div id="delivery-fixed-panel"><label class="text-xs text-slate-400 block mb-1">Fixed Addis Delivery Fee (ETB)</label><input id="delivery-addis-fee" class="field" type="number" min="0" value="'+esc(delivery.addis_delivery_fee ?? '300')+'"></div>'+
   '<div><label class="text-xs text-slate-400 block mb-1">Outside Addis Behavior</label><select id="delivery-outside" class="field">'+
   ['manual_confirmation','reject'].map(function(o){return'<option value="'+o+'"'+((delivery.outside_addis_behavior||'manual_confirmation')===o?' selected':'')+'>'+o.replace(/_/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase()})+'</option>'}).join('')+'</select></div>'+
   '</div>'+

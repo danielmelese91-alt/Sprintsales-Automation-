@@ -1234,7 +1234,9 @@ const upsertDraftOrder = async ({ data, client, conversation, product, text }) =
 
   if (deliveryInAddis) {
     // Use client's configured Addis fee or default 300
-    deliveryFee = Number(deliverySettings.addis_delivery_fee) || 300;
+    deliveryFee = Number.isFinite(Number(deliverySettings.addis_delivery_fee))
+      ? Math.max(0, Number(deliverySettings.addis_delivery_fee))
+      : 300;
     deliveryFeeSource = 'fixed_addis';
     order.deliveryStatus = deliverySettings.mode === 'fixed_addis' ? 'not-started' : 'pending';
     if (order.total) {

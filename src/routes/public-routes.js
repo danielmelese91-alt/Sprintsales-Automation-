@@ -474,6 +474,44 @@ export function createPublicRoutes(deps) {
     return 'active';
   };
 
+  const csvValues = value => String(value || '')
+    .split(/[,|/;\n]+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  const specKey = value => String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'option';
+
+  const normalizeProductSpecGroups = body => {
+    let raw = body?.specGroups || body?.productSpecGroups || [];
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch (_error) {
+        raw = [];
+      }
+    }
+    if (!Array.isArray(raw)) raw = [];
+    const allowedFields = new Set(['size', 'color', 'option']);
+    return raw
+      .map(group => {
+        const key = specKey(group?.key || group?.name || group?.label);
+        const label = String(group?.label || group?.name || group?.key || 'Option').trim().slice(0, 40);
+        const field = allowedFields.has(String(group?.field || '').toLowerCase())
+          ? String(group.field).toLowerCase()
+          : 'option';
+        const values = csvValues(Array.isArray(group?.values) ? group.values.join(', ') : group?.values)
+          .map(value => value.slice(0, 50))
+          .filter((value, index, arr) => arr.findIndex(item => item.toLowerCase() === value.toLowerCase()) === index)
+          .slice(0, 20);
+        return { key, label, field, values };
+      })
+      .filter(group => group.key && group.label && group.values.length)
+      .slice(0, 8);
+  };
+
   const deliveryProgressForOrder = order => {
     const maxHours = Math.max(1, Number(order?.deliveryMaxHours || order?.deliveryEtaHours || 24) || 24);
     const startedAt = order?.deliveryStartedAt ? new Date(order.deliveryStartedAt) : new Date();
@@ -1363,7 +1401,7 @@ export function createPublicRoutes(deps) {
         ...defaultSettings().delivery,
         ...dl,
         mode: nextDeliveryMode,
-        addis_delivery_fee: has('addisDeliveryFee') ? Math.max(0, Math.min(99999, Number(b.addisDeliveryFee || 300))) : (dl.addis_delivery_fee ?? 300),
+        addis_delivery_fee: has('addisDeliveryFee') ? Math.max(0, Math.min(99999, Number.isFinite(Number(b.addisDeliveryFee)) ? Number(b.addisDeliveryFee) : 0)) : (dl.addis_delivery_fee ?? 300),
         outside_addis_behavior: has('outsideAddisBehavior') ? (b.outsideAddisBehavior === 'reject' ? 'reject' : 'manual_confirmation') : (dl.outside_addis_behavior || 'manual_confirmation'),
         shop_address: has('shopAddress') ? String(b.shopAddress || '') : (dl.shop_address || ''),
         shop_latitude: has('shopLatitude') ? (Number(b.shopLatitude) || null) : (dl.shop_latitude || null),
@@ -2089,6 +2127,7 @@ export function createPublicRoutes(deps) {
         sizes: String(req.body.sizes || ''),
         colors: String(req.body.colors || ''),
         options: String(req.body.options || ''),
+        specGroups: normalizeProductSpecGroups(req.body),
         variantNote: String(req.body.variantNote || ''),
         stockNote: String(req.body.stockNote || ''),
         material: String(req.body.material || ''),
@@ -2372,6 +2411,7 @@ export function createPublicRoutes(deps) {
       product.sizes = String(req.body.sizes || '');
       product.colors = String(req.body.colors || '');
       product.options = String(req.body.options || '');
+      product.specGroups = normalizeProductSpecGroups(req.body);
       product.variantNote = String(req.body.variantNote || '');
       product.stockNote = String(req.body.stockNote || '');
       product.material = String(req.body.material || '');
