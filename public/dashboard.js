@@ -1696,7 +1696,7 @@ renderAdminSettingsTabV2=async function(c){
           </div>
           <div>
             <label class="text-xs text-slate-400 block mb-1">Client login URL</label>
-            <input id="admin-public-login-url" class="field" value="${esc(loginUrl)}" placeholder="https://sprintsales.net/login">
+            <input id="admin-public-login-url" class="field" value="${esc(loginUrl)}" placeholder="https://automation.sprintsales.net/login">
           </div>
           <div>
             <label class="text-xs text-slate-400 block mb-1">Approval welcome message</label>

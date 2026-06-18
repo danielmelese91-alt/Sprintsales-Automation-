@@ -146,7 +146,7 @@ export function createAdminRoutes(deps) {
       businessName: client.businessName || 'your business',
       ownerName: ownerDisplayName,
       plan: client.billing?.plan || client.subscriptionPlan || 'basic',
-      loginUrl: settings.publicLoginUrl || process.env.PUBLIC_LOGIN_URL || 'https://sprintsales.net/login'
+      loginUrl: settings.publicLoginUrl || process.env.PUBLIC_LOGIN_URL || 'https://automation.sprintsales.net/login'
     };
     return template.replace(/\{(businessName|ownerName|plan|loginUrl)\}/g, (_, key) => vars[key] || '');
   };
