@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SprintSales - Telegram Sales Automation</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <style>
+    body{background:#0f172a;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:0.75rem}
+    .card-hover:hover{border-color:#3b82f6;box-shadow:0 4px 20px rgba(59,130,246,0.1)}
+    .field{background:#0f172a;border:1px solid #334155;color:#e2e8f0;width:100%;padding:0.75rem;border-radius:0.5rem;font-size:0.875rem;transition:border-color 0.2s}
+    .field:focus{border-color:#3b82f6;outline:none;ring:2px solid rgba(59,130,246,0.3)}
+    .field-error{border-color:#ef4444!important}
+    .btn{padding:0.625rem 1.25rem;border-radius:0.5rem;font-size:0.875rem;font-weight:600;cursor:pointer;transition:all 0.2s;border:none;display:inline-flex;align-items:center;gap:0.5rem;justify-content:center}
+    .btn:disabled{opacity:0.5;cursor:not-allowed}
+    .btn-primary{background:#2563eb;color:#fff}.btn-primary:hover:not(:disabled){background:#1d4ed8}
+    .btn-success{background:#16a34a;color:#fff}.btn-success:hover:not(:disabled){background:#15803d}
+    .btn-danger{background:#dc2626;color:#fff}.btn-danger:hover:not(:disabled){background:#b91c1c}
+    .btn-warning{background:#d97706;color:#fff}.btn-warning:hover:not(:disabled){background:#b45309}
+    .btn-ghost{background:transparent;border:1px solid #334155;color:#94a3b8}.btn-ghost:hover:not(:disabled){border-color:#3b82f6;color:#e2e8f0}
+    .badge{display:inline-flex;align-items:center;gap:0.25rem;padding:0.125rem 0.625rem;border-radius:9999px;font-size:0.75rem;font-weight:600}
+    .badge-pending{background:rgba(217,119,6,0.2);color:#fbbf24;border:1px solid rgba(251,191,36,0.3)}
+    .badge-active{background:rgba(22,163,74,0.2);color:#4ade80;border:1px solid rgba(74,222,128,0.3)}
+    .badge-rejected{background:rgba(220,38,38,0.2);color:#f87171;border:1px solid rgba(248,113,113,0.3)}
+    .badge-suspended{background:rgba(107,114,128,0.2);color:#9ca3af;border:1px solid rgba(156,163,175,0.3)}
+    .loading-spinner{animation:spin 1s linear infinite}@keyframes spin{100%{transform:rotate(360deg)}}
+    .toast{position:fixed;top:1rem;right:1rem;z-index:50;padding:0.75rem 1.25rem;border-radius:0.5rem;max-width:24rem;font-weight:600;font-size:0.875rem;box-shadow:0 4px 24px rgba(0,0,0,0.3);animation:slideIn 0.3s ease}
+    .toast-success{background:#166534;color:#bbf7d0;border:1px solid #22c55e}
+    .toast-error{background:#991b1b;color:#fecaca;border:1px solid #ef4444}
+    .toast-info{background:#1e3a5f;color:#bfdbfe;border:1px solid #3b82f6}
+    @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+    .sidebar-link{cursor:pointer;display:flex;align-items:center;gap:0.75rem;padding:0.625rem 0.75rem;border-radius:0.5rem;color:#94a3b8;text-decoration:none;font-size:0.875rem;transition:all 0.15s;font-weight:500}
+    .sidebar-link:hover{background:#1e293b;color:#e2e8f0}
+    .sidebar-link.active{background:#1e3a8a;color:#60a5fa}
+    .sidebar-link.blocked{opacity:0.5;cursor:not-allowed}
+    .sidebar-link.blocked:hover{background:transparent;color:#94a3b8}
+    .banner{padding:0.875rem 1.25rem;border-radius:0.75rem;display:flex;align-items:center;gap:0.75rem;font-size:0.875rem;font-weight:500;margin-bottom:1rem}
+    .banner-pending{background:rgba(217,119,6,0.15);border:1px solid rgba(251,191,36,0.3);color:#fbbf24}
+    .banner-rejected{background:rgba(220,38,38,0.15);border:1px solid rgba(248,113,113,0.3);color:#f87171}
+    .banner-suspended{background:rgba(107,114,128,0.15);border:1px solid rgba(156,163,175,0.3);color:#9ca3af}
+    .stat-card{background:#1e293b;border:1px solid #334155;border-radius:0.75rem;padding:1.25rem}
+    .stat-card i{opacity:0.6}
+    .locked-overlay{background:rgba(15,23,42,0.7);border-radius:0.75rem;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;text-align:center;gap:0.5rem;border:2px dashed #334155}
+    .locked-overlay i{color:#64748b;font-size:1.5rem}
+    .locked-overlay span{color:#64748b;font-size:0.8rem;font-weight:500}
+    .tab-btn{background:none;border:none;color:#94a3b8;padding:0.5rem 1.25rem;font-size:0.875rem;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.15s}
+    .tab-btn.active{color:#60a5fa;border-bottom-color:#3b82f6}
+    .tab-btn:hover:not(.active){color:#e2e8f0;border-bottom-color:#334155}
+    @media(max-width:768px){.sidebar{display:none}.sidebar.open{display:flex;position:fixed;top:0;left:0;bottom:0;z-index:40;width:260px;flex-direction:column}}
+    .dashboard-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}
+    .hidden{display:none!important}
+    .flex{display:flex}
+    .min-h-screen{min-height:100vh}
+    .items-center{align-items:center}
+    .justify-center{justify-content:center}
+  </style>
+</head>
+<body>
+<div id="app" class="min-h-screen">
+  <!-- Loading -->
+  <div id="loading" class="flex items-center justify-center min-h-screen">
+    <div class="text-center">
+      <i class="fas fa-spinner loading-spinner text-4xl text-sprint-400 mb-4 block"></i>
+      <p class="text-slate-400">Loading SprintSales...</p>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-page" class="hidden flex items-center justify-center min-h-screen">
+    <div class="text-center max-w-md">
+      <i class="fas fa-exclamation-triangle text-4xl text-yellow-400 mb-4 block"></i>
+      <h2 class="text-xl font-semibold text-white mb-2">Something went wrong</h2>
+      <p id="error-text" class="text-slate-400 mb-1"></p>
+      <p id="error-detail" class="text-xs text-slate-500 mb-6"></p>
+      <button onclick="init()" class="btn btn-primary mx-auto"><i class="fas fa-redo"></i>Try Again</button>
+    </div>
+  </div>
+
+  <!-- PUBLIC PAGE: Landing + Login/Register -->
+  <div id="public-page" class="hidden min-h-screen public-shell">
+    <header class="public-nav">
+      <div class="public-brand"><span class="brand-mark">S</span><span>SprintSales</span></div>
+      <div class="public-nav-actions">
+        <button type="button" class="public-link-btn" onclick="switchAuthTab('login')">Log in</button>
+        <button type="button" class="public-cta-btn" onclick="switchAuthTab('register')">Start free</button>
+      </div>
+    </header>
+
+    <main class="public-main">
+      <section class="public-hero">
+        <div class="public-kicker"><i class="fas fa-bolt"></i> Sales automation for Telegram-first retailers</div>
+        <h1>Never miss a buyer again. Automate your sales for effortless, massive growth.</h1>
+        <p class="public-lead">SprintSales turns your Telegram shop into a guided selling system: products look professional, buyers place complete orders step by step, payment proof reaches the owner for fast confirmation, delivery details stay clear, and serious customers are followed up without constant manual chatting.</p>
+        <div class="public-hero-actions">
+          <button type="button" class="public-hero-primary" onclick="switchAuthTab('register')"><i class="fas fa-store"></i> Create your shop workspace</button>
+          <button type="button" class="public-hero-secondary" onclick="switchAuthTab('login')"><i class="fas fa-right-to-bracket"></i> I already have an account</button>
+        </div>
+        <div class="public-steps">
+          <div><strong>1</strong><span>Register your shop</span></div>
+          <div><strong>2</strong><span>Add products, prices and payment accounts</span></div>
+          <div><strong>3</strong><span>Connect Telegram and let the bot guide buyers</span></div>
+        </div>
+        <div class="public-proof">
+          <span><i class="fas fa-check-circle"></i> Replies to buyers while you are busy</span>
+          <span><i class="fas fa-check-circle"></i> Collects complete order details</span>
+          <span><i class="fas fa-check-circle"></i> Speeds up payment proof review</span>
+          <span><i class="fas fa-check-circle"></i> Suggests relevant products naturally</span>
+          <span><i class="fas fa-check-circle"></i> Follows up with serious customers</span>
+        </div>
+      </section>
+
+      <aside class="auth-panel">
+        <div class="auth-card">
+          <div class="auth-header">
+            <span class="auth-eyebrow" id="auth-eyebrow">Workspace access</span>
+            <h2 id="auth-title">Welcome to SprintSales</h2>
+            <p id="auth-subtitle">Log in or create a business account in a few minutes.</p>
+          </div>
+          <div class="auth-tabs">
+            <button class="tab-btn active flex-1" id="tab-login-btn" onclick="switchAuthTab('login')">Log in</button>
+            <button class="tab-btn flex-1" id="tab-register-btn" onclick="switchAuthTab('register')">Create account</button>
+          </div>
+          <div id="auth-login" class="space-y-4">
+            <form onsubmit="doPublicLogin(event)" class="space-y-4">
+              <div><label class="block text-sm text-slate-600 mb-1">Email or phone</label><input type="text" id="login-identifier" class="field" placeholder="you@business.com or 09..." required autocomplete="username"></div>
+              <div><label class="block text-sm text-slate-600 mb-1">Password</label><input type="password" id="login-password" class="field" placeholder="Enter your password" required autocomplete="current-password"></div>
+              <button type="submit" id="login-btn" class="btn btn-primary w-full text-base py-3"><i class="fas fa-sign-in-alt"></i> Log in</button>
+              <button type="button" class="w-full text-xs text-slate-500 hover:text-blue-700 font-semibold" onclick="showForgotPasswordForm()">Forgot password?</button>
+              <p id="login-error" class="hidden text-sm text-red-500 text-center"></p>
+            </form>
+            <form id="forgot-password-form" onsubmit="requestForgotPassword(event)" class="hidden space-y-3 border-t border-slate-200 pt-4">
+              <p class="text-xs text-slate-500">Enter your login email/phone and a new password. A reset code will be sent to the connected owner Telegram chat.</p>
+              <input id="forgot-identifier" class="field" placeholder="Email or phone" autocomplete="username">
+              <input id="forgot-new-password" class="field" type="password" placeholder="New password, min 5 characters" autocomplete="new-password">
+              <div id="forgot-code-row" class="hidden space-y-3">
+                <input id="forgot-code" class="field" inputmode="numeric" maxlength="6" placeholder="6-digit reset code">
+                <button type="button" class="btn btn-primary w-full text-sm" onclick="confirmForgotPassword()"><i class="fas fa-check"></i> Confirm Reset</button>
+              </div>
+              <button type="submit" id="forgot-btn" class="btn btn-secondary w-full text-sm"><i class="fas fa-paper-plane"></i> Send reset code</button>
+              <p id="forgot-status" class="text-xs text-slate-500 text-center"></p>
+            </form>
+            <p class="text-center text-xs text-slate-500 mt-2" id="login-help">Need access? Create an account and we will review your workspace.</p>
+          </div>
+          <div id="auth-register" class="hidden space-y-4">
+            <form onsubmit="doPublicRegister(event)" class="space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="block text-xs text-slate-600 mb-1">Owner full name *</label><input type="text" id="reg-name" class="field" placeholder="Your name" required></div>
+                <div><label class="block text-xs text-slate-600 mb-1">Business name *</label><input type="text" id="reg-business" class="field" placeholder="Your business" required></div>
+              </div>
+              <div><label class="block text-xs text-slate-600 mb-1">Business type *</label><select id="reg-type" class="field" required><option value="">Select your business type</option><option value="electronics">Electronics</option><option value="fashion">Fashion / Boutique</option><option value="beauty">Beauty / Cosmetics</option><option value="shoes">Shoes</option><option value="bags">Bags / Accessories</option><option value="home">Home / Kitchen</option><option value="furniture">Furniture</option><option value="retail">General Retail</option></select></div>
+              <div><label class="block text-xs text-slate-600 mb-1">Subscription plan *</label><select id="reg-plan" class="field" required><option value="basic">Basic - sales automation</option><option value="pro">Pro - recommendations and announcements</option></select><p class="text-xs text-slate-500 mt-1">You can upgrade or change this later with SprintSales.</p></div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="block text-xs text-slate-600 mb-1">Phone number *</label><input type="tel" id="reg-phone" class="field" placeholder="+251 9xx xxx xxx" required></div>
+                <div><label class="block text-xs text-slate-600 mb-1">Email <span class="text-slate-400">(optional)</span></label><input type="email" id="reg-email" class="field" placeholder="you@example.com"></div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label class="block text-xs text-slate-600 mb-1">Password *</label><input type="password" id="reg-password" class="field" placeholder="Min 5 characters" required minlength="5"></div>
+                <div><label class="block text-xs text-slate-600 mb-1">Confirm password *</label><input type="password" id="reg-password2" class="field" placeholder="Re-enter password" required></div>
+              </div>
+              <div class="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-slate-700">
+                <p class="font-semibold text-blue-900"><i class="fas fa-paper-plane mr-1"></i> Verify the owner Telegram account</p>
+                <p class="mt-1">Open Telegram, search <strong>@sprintsalesbot</strong>, send <strong>/start</strong>, then tap <strong>Share phone number</strong>. Use the same phone number you typed above. No chat ID or extra code is needed.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mt-3">
+                  <a class="btn btn-ghost text-xs" href="https://t.me/sprintsalesbot?start=verify" target="_blank" rel="noopener"><i class="fab fa-telegram"></i> Open SprintSales bot</a>
+                  <button type="button" id="reg-code-btn" class="btn btn-secondary text-xs" onclick="requestRegisterCode()"><i class="fas fa-check-circle"></i> Check verification</button>
+                </div>
+                <p id="reg-code-status" class="text-xs text-slate-500 mt-2"></p>
+              </div>
+              <button type="submit" id="reg-btn" class="btn btn-primary w-full text-base py-3"><i class="fas fa-user-plus"></i> Create account</button>
+              <p id="reg-error" class="hidden text-sm text-red-500 text-center"></p>
+              <p class="text-xs text-slate-500 text-center">After registration, your account will be reviewed for approval. You can explore the dashboard in the meantime.</p>
+            </form>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <section class="public-preview">
+      <div class="preview-card">
+        <div class="preview-top"><span></span><span></span><span></span></div>
+        <div class="preview-grid">
+          <div class="preview-metric"><small>Orders organized</small><strong>24</strong></div>
+          <div class="preview-metric"><small>Warm buyers</small><strong>8</strong></div>
+          <div class="preview-metric"><small>Products ready</small><strong>132</strong></div>
+        </div>
+        <div class="preview-row"><i class="fas fa-box"></i><div><strong>Jeans 007</strong><span>Buyer chose size, color and quantity</span></div><b>1,850 ETB</b></div>
+        <div class="preview-row"><i class="fas fa-receipt"></i><div><strong>Payment proof</strong><span>Sent to owner for quick confirmation</span></div><b>Review</b></div>
+        <div class="preview-row"><i class="fas fa-user-check"></i><div><strong>Returning buyer</strong><span>Saved details make the next order faster</span></div><b>Known</b></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- DASHBOARD: Sidebar Layout -->
+  <div id="dashboard" class="hidden min-h-screen flex">
+    <!-- Sidebar -->
+    <aside class="sidebar w-60 bg-slate-900 border-r border-slate-700 flex flex-col p-4 flex-shrink-0">
+      <div class="mb-6 px-2">
+        <div class="flex items-center gap-2"><img id="sidebar-client-logo" class="hidden w-9 h-9 rounded-lg object-contain border border-slate-200 bg-white" alt="Business logo"><span class="text-lg font-bold text-white">SprintSales</span></div>
+        <p id="sidebar-biz-name" class="text-xs text-slate-500 mt-0.5 truncate"></p>
+        <span id="sidebar-role-badge" class="badge badge-active text-xs mt-1 inline-block"></span>
+      </div>
+      <nav class="flex-1 space-y-1 overflow-y-auto" id="sidebar-nav"></nav>
+      <div class="mt-4 pt-4 border-t border-slate-700">
+        <button onclick="doLogout()" class="sidebar-link w-full text-left">
+          <i class="fas fa-sign-out-alt text-red-400"></i><span>Sign Out</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Mobile menu toggle -->
+    <button id="mobile-menu-btn" class="btn btn-ghost fixed top-3 left-3 z-50 lg:hidden" onclick="toggleMobileMenu()" style="display:none">
+      <i class="fas fa-bars"></i>
+    </button>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto p-6">
+      <!-- Status Banner -->
+      <div id="status-banner" class="hidden"></div>
+
+      <!-- Dashboard Content -->
+      <div id="dashboard-content" class="space-y-6"></div>
+    </main>
+  </div>
+</div>
+
+<script>tailwind={config:{theme:{extend:{colors:{sprint:{50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a'}}}}}}</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style id="demo-light-theme">
+  :root{
+    --ss-navy:#071f3f;
+    --ss-navy-2:#0e315f;
+    --ss-blue:#2563eb;
+    --ss-cyan:#06b6d4;
+    --ss-mint:#10b981;
+    --ss-gold:#f59e0b;
+    --ss-bg:#f4f8fd;
+    --ss-panel:#ffffff;
+    --ss-panel-2:#f8fbff;
+    --ss-border:#d8e4f2;
+    --ss-muted:#60758c;
+    --ss-soft:#eaf3ff;
+    --ss-text:#102033;
+    --ss-shadow:0 18px 45px rgba(7,31,63,.08);
+    --ss-shadow-lg:0 28px 80px rgba(7,31,63,.16);
+  }
+  html{scroll-behavior:smooth}
+  body{background:var(--ss-bg)!important;color:var(--ss-text)!important;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  #loading,#error-page,#dashboard main{background:radial-gradient(circle at top left,rgba(37,99,235,.12),transparent 34rem),linear-gradient(180deg,#fbfdff 0%,#eef5fd 100%)!important}
+  #public-page{background:var(--ss-bg)!important}
+  .public-shell{display:block;min-height:100vh;background:radial-gradient(circle at 12% 10%,rgba(6,182,212,.22),transparent 22rem),radial-gradient(circle at 80% 16%,rgba(37,99,235,.18),transparent 24rem),linear-gradient(135deg,#f9fcff 0%,#edf5ff 48%,#f7fbff 100%)!important;color:var(--ss-text)!important;position:relative;overflow:hidden}
+  .public-shell:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(7,31,63,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(7,31,63,.035) 1px,transparent 1px);background-size:48px 48px;mask-image:linear-gradient(180deg,rgba(0,0,0,.85),transparent 72%);pointer-events:none}
+  .public-shell:after{content:"";position:absolute;inset:-8%;background-image:linear-gradient(rgba(7,31,63,.028) 1px,transparent 1px),linear-gradient(90deg,rgba(7,31,63,.028) 1px,transparent 1px);background-size:58px 58px;mask-image:linear-gradient(180deg,rgba(0,0,0,.7),transparent 76%);transform:translate3d(0,0,0);animation:ssTextureWave 16s ease-in-out infinite alternate;pointer-events:none}
+  @keyframes ssTextureWave{0%{background-position:0 0,0 0;transform:translate3d(-1.5%,0,0) skewY(-.6deg)}50%{background-position:34px 18px,34px 18px;transform:translate3d(1%,1.2%,0) skewY(.55deg)}100%{background-position:72px 36px,72px 36px;transform:translate3d(-.4%,2.2%,0) skewY(-.25deg)}}
+  .public-shell.hidden{display:none!important}
+  .public-nav{max-width:1240px;margin:0 auto;padding:26px 28px 8px;display:flex;align-items:center;justify-content:space-between;gap:16px;position:relative;z-index:1}
+  .public-brand{display:flex;align-items:center;gap:12px;color:var(--ss-navy);font-weight:900;font-size:1.2rem;letter-spacing:-.01em}
+  .brand-mark{width:42px;height:42px;border-radius:14px;background:linear-gradient(145deg,var(--ss-navy),var(--ss-blue));color:#fff;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 16px 34px rgba(7,31,63,.24)}
+  .public-nav-actions{display:flex;gap:10px;align-items:center}
+  .public-link-btn,.public-cta-btn,.public-hero-primary,.public-hero-secondary{border:none;cursor:pointer;font-weight:800;display:inline-flex;align-items:center;justify-content:center;gap:9px;transition:.18s ease;white-space:nowrap}
+  .public-link-btn{background:rgba(255,255,255,.78);color:var(--ss-navy);border:1px solid rgba(216,228,242,.9);border-radius:999px;padding:11px 17px;backdrop-filter:blur(12px)}
+  .public-cta-btn,.public-hero-primary{background:linear-gradient(135deg,var(--ss-navy),#1450a3);color:#fff;border-radius:999px;padding:12px 20px;box-shadow:0 18px 38px rgba(7,31,63,.22)}
+  .public-link-btn:hover,.public-cta-btn:hover,.public-hero-primary:hover,.public-hero-secondary:hover{transform:translateY(-2px)}
+  .public-main{max-width:1240px;margin:0 auto;padding:50px 28px 24px;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(400px,.82fr);gap:56px;align-items:center;position:relative;z-index:1}
+  .public-hero h1{font-size:clamp(2.55rem,5vw,4.85rem);line-height:.99;color:#071f3f;font-weight:900;letter-spacing:-.045em;margin:18px 0 20px;max-width:850px}
+  .public-kicker{display:inline-flex;align-items:center;gap:9px;background:rgba(255,255,255,.82);border:1px solid rgba(216,228,242,.95);border-radius:999px;padding:9px 13px;color:#174b84;font-size:.84rem;font-weight:850;box-shadow:0 10px 25px rgba(7,31,63,.06);backdrop-filter:blur(12px)}
+  .public-kicker i{color:var(--ss-cyan)}
+  .public-lead{font-size:1.1rem;line-height:1.8;color:#496179;max-width:720px}
+  .public-hero-actions{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0 24px}
+  .public-hero-primary,.public-hero-secondary{min-height:48px}
+  .public-hero-secondary{background:rgba(255,255,255,.82);color:var(--ss-navy);border:1px solid rgba(216,228,242,.95);border-radius:999px;padding:12px 20px;backdrop-filter:blur(12px)}
+  .public-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;max-width:790px;margin-top:20px}
+  .public-steps div{background:rgba(255,255,255,.86);border:1px solid rgba(216,228,242,.95);border-radius:18px;padding:15px;display:flex;gap:11px;align-items:center;box-shadow:0 14px 34px rgba(7,31,63,.06);backdrop-filter:blur(10px)}
+  .public-steps strong{width:32px;height:32px;border-radius:12px;background:linear-gradient(135deg,#dbeafe,#cffafe);color:var(--ss-navy);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:900}
+  .public-steps span{font-size:.86rem;color:#304963;font-weight:800;line-height:1.35}
+  .public-proof{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px;color:#405873;font-size:.84rem}
+  .public-proof span{display:inline-flex;gap:7px;align-items:center;background:rgba(255,255,255,.82);border:1px solid #dbe7f5;border-radius:999px;padding:9px 12px;box-shadow:0 8px 20px rgba(7,31,63,.04)}
+  .public-proof i{color:var(--ss-mint)}
+  .auth-panel{width:100%}
+  .auth-card{background:rgba(255,255,255,.92);border:1px solid rgba(216,228,242,.96);border-radius:28px;padding:28px;box-shadow:var(--ss-shadow-lg);backdrop-filter:blur(18px);position:relative;overflow:hidden}
+  .auth-card:before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,var(--ss-navy),var(--ss-blue),var(--ss-cyan))}
+  .auth-header{text-align:left;margin-bottom:18px;position:relative}
+  .auth-eyebrow{text-transform:uppercase;letter-spacing:.1em;color:#2563eb;font-size:.72rem;font-weight:900}
+  .auth-header h2{font-size:1.72rem;color:#071f3f;font-weight:900;margin-top:7px;letter-spacing:-.025em}
+  .auth-header p{color:#60758c;font-size:.94rem;margin-top:5px;line-height:1.55}
+  .auth-tabs{display:flex;background:#edf5ff;border:1px solid #d9e6f5;border-radius:16px;padding:5px;margin-bottom:22px}
+  .auth-tabs .tab-btn{border:0;border-radius:12px;color:#52677f;padding:11px;font-weight:900}
+  .auth-tabs .tab-btn.active{background:#fff;color:var(--ss-navy);box-shadow:0 9px 22px rgba(7,31,63,.09)}
+  .auth-card .field{background:#fff!important;color:#102033!important;border-color:#cbd9ea!important;border-radius:13px!important;min-height:45px}
+  .public-preview{max-width:1240px;margin:0 auto;padding:0 28px 54px;position:relative;z-index:1}
+  .preview-card{background:linear-gradient(145deg,#071f3f,#123b72);color:#fff;border-radius:28px;padding:20px;box-shadow:0 28px 74px rgba(7,31,63,.26);max-width:760px;border:1px solid rgba(255,255,255,.12)}
+  .preview-top{display:flex;gap:7px;margin-bottom:15px}.preview-top span{width:10px;height:10px;border-radius:999px;background:#dbeafe;opacity:.8}
+  .preview-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:13px}
+  .preview-metric{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.15);border-radius:16px;padding:13px}.preview-metric small{display:block;color:#d7e7fb;font-size:.72rem}.preview-metric strong{font-size:1.5rem}
+  .preview-row{display:grid;grid-template-columns:34px 1fr auto;gap:12px;align-items:center;background:#fff;color:#102033;border-radius:16px;padding:13px;margin-top:10px}.preview-row i{color:#2563eb}.preview-row span{display:block;color:#64748b;font-size:.78rem}.preview-row b{color:#071f3f}
+  #public-page.login-only .public-hero,#public-page.login-only .public-preview,#public-page.login-only .public-nav-actions{display:none}
+  #public-page.login-only .public-main{min-height:calc(100vh - 82px);grid-template-columns:minmax(320px,480px);justify-content:center}
+  #public-page.admin-login-mode .public-nav-actions,#public-page.admin-login-mode .public-hero,#public-page.admin-login-mode .public-preview,#public-page.admin-login-mode #tab-register-btn,#public-page.admin-login-mode #auth-register{display:none!important}
+  #public-page.admin-login-mode .public-main{min-height:calc(100vh - 82px);grid-template-columns:minmax(320px,480px);justify-content:center}
+  #public-page.admin-login-mode .auth-card{border-top:0}
+  #public-page.admin-login-mode .auth-tabs{display:none}
+  #public-page.admin-login-mode .public-shell,#public-page.admin-login-mode{background:linear-gradient(135deg,#050505 0%,#141414 48%,#390909 100%)!important}
+  #public-page.admin-login-mode .public-shell:before{background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px)}
+  #public-page.admin-login-mode .public-shell:after{display:none}
+  #public-page.admin-login-mode .public-brand{color:#fff}
+  #public-page.admin-login-mode .brand-mark{background:linear-gradient(145deg,#e11d2e,#7f1d1d);box-shadow:0 16px 34px rgba(225,29,46,.32)}
+  #public-page.admin-login-mode .auth-card{background:rgba(255,255,255,.96);border-color:rgba(255,255,255,.18);box-shadow:0 32px 90px rgba(0,0,0,.42)}
+  #public-page.admin-login-mode .auth-card:before{background:linear-gradient(90deg,#050505,#e11d2e,#050505)}
+  #public-page.admin-login-mode .auth-eyebrow{color:#b91c1c}
+  #public-page.admin-login-mode .auth-header h2{color:#050505}
+  #public-page.admin-login-mode .btn-primary{background:linear-gradient(135deg,#050505,#e11d2e)!important;box-shadow:0 16px 32px rgba(185,28,28,.24)}
+  #dashboard{background:var(--ss-bg)!important}
+  #dashboard main{display:flex;flex-direction:column;min-height:100vh;padding:28px!important}
+  #dashboard-content{flex:1;display:flex;flex-direction:column;gap:1.15rem}
+  .sidebar{width:282px!important;background:linear-gradient(180deg,#ffffff 0%,#f7fbff 100%)!important;border-right:1px solid var(--ss-border)!important;box-shadow:12px 0 34px rgba(7,31,63,0.07);padding:20px!important}
+  .sidebar .text-white,.sidebar #sidebar-biz-name{color:var(--ss-navy)!important}
+  .sidebar #sidebar-biz-name{opacity:.82;font-weight:700}
+  .sidebar nav{padding-right:2px}
+  .sidebar .text-xs.uppercase{letter-spacing:.12em;color:#93a6ba!important;font-size:.68rem}
+  .sidebar-link{color:#4b647f!important;border:1px solid transparent;border-radius:14px!important;padding:.72rem .82rem!important;font-weight:800}
+  .sidebar-link i{width:18px;text-align:center;color:#60758c}
+  .sidebar-link:hover{background:#eef6ff!important;color:var(--ss-navy)!important;border-color:#d9e7f7;transform:translateX(2px)}
+  .sidebar-link.active{background:linear-gradient(135deg,var(--ss-navy),var(--ss-navy-2))!important;color:#fff!important;box-shadow:0 13px 28px rgba(7,31,63,.18)}
+  .sidebar-link.active i{color:#bfdbfe!important}
+  .card,.stat-card{background:rgba(255,255,255,.96)!important;border:1px solid var(--ss-border)!important;border-radius:18px!important;box-shadow:var(--ss-shadow)}
+  .card-hover:hover{border-color:#9fc4ef!important;box-shadow:0 18px 42px rgba(7,31,63,.12)!important;transform:translateY(-2px)}
+  .stat-card{padding:1.25rem!important;transition:.16s ease}
+  .stat-card p.text-2xl{font-size:2rem!important;letter-spacing:-.03em}
+  .dashboard-grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))!important;gap:1rem!important}
+  .overview-hero{background:linear-gradient(135deg,#071f3f,#123b72)!important;color:#fff!important;border-color:rgba(255,255,255,.14)!important;box-shadow:0 24px 60px rgba(7,31,63,.2)!important}
+  .overview-hero .text-white,.overview-hero .text-slate-400,.overview-hero .text-slate-500{color:#fff!important}
+  .overview-hero .overview-logo{box-shadow:0 15px 36px rgba(0,0,0,.16)}
+  .field,input,select,textarea{background:#fff!important;border-color:#cbd9ea!important;color:var(--ss-text)!important;border-radius:12px!important}
+  .field:focus,input:focus,select:focus,textarea:focus{border-color:var(--ss-blue)!important;box-shadow:0 0 0 4px rgba(37,99,235,.13)!important;outline:none!important}
+  label{font-weight:800}
+  .btn{border-radius:12px!important;min-height:38px}
+  .btn-primary{background:linear-gradient(135deg,var(--ss-navy),#1556af)!important;color:#fff!important;box-shadow:0 12px 24px rgba(7,31,63,.17)}
+  .btn-primary:hover:not(:disabled){filter:brightness(1.08);transform:translateY(-1px)}
+  .btn-secondary{background:#eaf3ff!important;border:1px solid #c9d9ec!important;color:var(--ss-navy)!important}
+  .btn-secondary:hover:not(:disabled){background:#dfeeff!important;border-color:#a9c1dd!important;transform:translateY(-1px)}
+  .btn-ghost{background:#fff!important;border:1px solid #cbd9ea!important;color:#334155!important}
+  .btn-ghost:hover:not(:disabled){background:var(--ss-soft)!important;border-color:#9fb7d6!important;color:var(--ss-navy)!important}
+  .btn-success{background:linear-gradient(135deg,#059669,#10b981)!important;color:#fff!important}
+  .btn-danger{background:linear-gradient(135deg,#dc2626,#ef4444)!important;color:#fff!important}
+  .btn-warning{background:linear-gradient(135deg,#d97706,#f59e0b)!important;color:#fff!important}
+  .spec-chip{background:#fff;border:1px solid #cbd9ea;color:#334155;border-radius:11px;padding:.42rem .62rem;font-size:.74rem;line-height:1;transition:all .12s;font-weight:800}
+  .spec-chip:hover{background:#eff6ff;border-color:#9fb7d6;color:var(--ss-navy)}
+  .spec-chip.selected{background:linear-gradient(135deg,var(--ss-navy),var(--ss-blue));border-color:transparent;color:#fff;box-shadow:0 9px 18px rgba(7,31,63,.15)}
+  .image-slot{display:block;cursor:pointer}
+  .image-slot-box{min-height:6.25rem;border:1px dashed #9fb7d6;border-radius:16px;background:#f8fbff;color:#4b647f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.3rem;text-align:center;transition:all .14s}
+  .image-slot-box:hover{background:#eff6ff;border-color:var(--ss-blue);color:var(--ss-navy);transform:translateY(-1px)}
+  .image-slot-box strong{font-size:.78rem}
+  .image-slot-box small{font-size:.68rem;color:#7b8ba0}
+  .badge-active{background:#e8f7ef!important;color:#166534!important;border-color:#b7ebc9!important}
+  .badge-pending{background:#fff7ed!important;color:#9a3412!important;border-color:#fed7aa!important}
+  .badge-rejected{background:#fef2f2!important;color:#991b1b!important;border-color:#fecaca!important}
+  .badge-suspended{background:#f1f5f9!important;color:#475569!important;border-color:#cbd5e1!important}
+  .banner-pending{background:#fff7ed!important;border-color:#fed7aa!important;color:#9a3412!important}
+  .banner-rejected{background:#fef2f2!important;border-color:#fecaca!important;color:#991b1b!important}
+  .banner-suspended{background:#f1f5f9!important;border-color:#cbd5e1!important;color:#475569!important}
+  .tab-btn{color:#64748b!important}
+  .tab-btn.active{color:var(--ss-navy)!important;border-bottom-color:var(--ss-navy)!important}
+  .tab-btn:hover:not(.active){color:var(--ss-navy)!important;border-bottom-color:#b6c7dc!important}
+  .toast{box-shadow:0 18px 35px rgba(15,42,77,.18)!important}
+  .toast-success{background:#ecfdf5!important;color:#065f46!important;border-color:#a7f3d0!important}
+  .toast-error{background:#fef2f2!important;color:#991b1b!important;border-color:#fecaca!important}
+  .toast-info{background:#eff6ff!important;color:#1e3a8a!important;border-color:#bfdbfe!important}
+  .toast-warning{background:#fffbeb!important;color:#92400e!important;border-color:#fde68a!important}
+  .nice-dialog-backdrop{position:fixed;inset:0;background:rgba(15,42,77,.32);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px}
+  .nice-dialog-card{width:min(520px,100%);background:#fff;border:1px solid var(--ss-border);border-radius:18px;box-shadow:0 24px 70px rgba(15,42,77,.22);padding:22px}
+  .nice-dialog-card h3{font-size:1rem;font-weight:800;color:var(--ss-navy)}
+  .nice-dialog-card p{font-size:.88rem;color:#52677f;line-height:1.6;margin-top:4px;white-space:pre-line}
+  .nice-dialog-icon{width:42px;height:42px;border-radius:12px;background:#eff6ff;color:var(--ss-navy);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .nice-dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+  .overview-logo{width:72px;height:72px;border-radius:20px;object-fit:contain;background:#fff;border:1px solid var(--ss-border);padding:7px;flex-shrink:0}
+  .overview-logo.fallback{display:flex;align-items:center;justify-content:center;color:var(--ss-navy);font-size:1.4rem;background:#eef4fb}
+  .logo-upload-box{min-height:96px;border:1px dashed #9fb7d6;border-radius:16px;background:#f8fbff;color:#4b647f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;cursor:pointer;text-align:center;font-size:.82rem;font-weight:800}
+  .logo-upload-box:hover,.logo-upload-box.dragging{background:#eff6ff;border-color:var(--ss-blue);color:var(--ss-navy)}
+  .client-footer{text-align:center;color:#7b8ba0;font-size:.78rem;padding:18px 0 4px;margin-top:auto}
+  table{border-collapse:separate!important;border-spacing:0!important}
+  table th{font-size:.72rem!important;letter-spacing:.06em;text-transform:uppercase;font-weight:900!important}
+  table td,table th{vertical-align:middle!important}
+  table tbody tr{transition:background .14s ease,box-shadow .14s ease}
+  table img.w-16,table .w-16.h-16{width:76px!important;height:76px!important;border-radius:16px!important}
+  .overflow-x-auto{border-radius:18px}
+  .card.overflow-x-auto,.card.overflow-hidden{box-shadow:var(--ss-shadow)!important}
+  .text-white{color:var(--ss-text)!important}
+  .text-slate-300{color:#475569!important}
+  .text-slate-400{color:var(--ss-muted)!important}
+  .text-slate-500{color:#7b8ba0!important}
+  .text-slate-600{color:#94a3b8!important}
+  .text-yellow-200{color:#9a5b00!important}
+  .border-slate-700{border-color:var(--ss-border)!important}
+  .border-slate-800{border-color:#cbd5e1!important}
+  .bg-slate-900,.bg-slate-800{background:var(--ss-panel)!important}
+  .bg-slate-900\/40,.hover\:bg-slate-800:hover{background:#f8fbff!important}
+  .bg-slate-950{background:var(--ss-bg)!important}
+  table thead tr{background:#f8fafc}
+  table tbody tr{border-color:#e2e8f0!important}
+  table tbody tr:hover{background:#f8fbff}
+  th{color:#52657a!important}
+  .locked-overlay{background:#f8fafc!important;border-color:#cbd5e1!important}
+  .rounded-lg.border{border-color:var(--ss-border)!important}
+  .space-y-6>div>h2,.space-y-6 h2{letter-spacing:-.02em}
+  .command-hero{background:linear-gradient(135deg,#071f3f 0%,#123b72 62%,#0e7490 100%)!important;color:#fff!important;border:0!important;border-radius:26px!important;box-shadow:0 26px 70px rgba(7,31,63,.22)!important;overflow:hidden;position:relative}
+  .command-hero:after{content:"";position:absolute;right:-90px;top:-120px;width:320px;height:320px;border-radius:999px;background:rgba(255,255,255,.1);pointer-events:none}
+  .command-hero .text-slate-400,.command-hero .text-slate-500,.command-hero .text-white{color:#fff!important}
+  .command-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.12);border-radius:999px;padding:7px 10px;font-size:.76rem;font-weight:800;color:#e6f3ff}
+  .metric-tile{background:#fff;border:1px solid var(--ss-border);border-radius:18px;padding:16px;text-align:left;box-shadow:0 12px 30px rgba(7,31,63,.06);transition:.15s ease}
+  .metric-tile:hover{transform:translateY(-2px);box-shadow:0 18px 44px rgba(7,31,63,.12);border-color:#9fc4ef}
+  .metric-icon{width:42px;height:42px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:#eaf3ff;color:var(--ss-navy);font-size:1rem}
+  .mini-bar-wrap{height:132px;display:flex;align-items:flex-end;gap:8px;padding:14px 8px 4px}
+  .mini-bar{flex:1;min-width:12px;border-radius:999px 999px 6px 6px;background:linear-gradient(180deg,#2563eb,#06b6d4);box-shadow:0 9px 18px rgba(37,99,235,.18)}
+  .focus-row{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;border:1px solid var(--ss-border);border-radius:16px;padding:12px;background:#fff;transition:.15s ease}
+  .focus-row:hover{background:#f8fbff;border-color:#b8cbe1}
+  .focus-row .focus-thumb{width:44px;height:44px;border-radius:14px;background:#eaf3ff;color:var(--ss-navy);display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .focus-row img{width:100%;height:100%;object-fit:cover}
+  @media(max-width:980px){.public-main{grid-template-columns:1fr;gap:30px;padding-top:28px}.auth-panel{max-width:590px}.public-steps{grid-template-columns:1fr}.public-preview{display:none}.public-hero h1{font-size:2.8rem}.sidebar{width:270px!important}}
+  @media(max-width:640px){#dashboard main{padding:18px!important}.public-nav{padding:18px 16px 8px}.public-main{padding:24px 16px}.public-hero h1{font-size:2.2rem;line-height:1.06}.public-lead{font-size:1rem;line-height:1.65}.public-hero-actions{flex-direction:column}.public-hero-primary,.public-hero-secondary{width:100%}.public-proof span{width:100%;justify-content:flex-start}.auth-card{padding:22px;border-radius:22px}.auth-tabs{position:sticky;top:0;z-index:2}.public-nav-actions{display:none}.metric-tile{padding:14px}.command-hero{border-radius:22px!important}.command-hero .grid-cols-3{grid-template-columns:1fr!important}.focus-row{grid-template-columns:40px 1fr!important}.focus-row .badge{grid-column:2}}
+  body.admin-dashboard{
+    --admin-red:#e11d2e;
+    --admin-red-dark:#991b1b;
+    --admin-black:#080808;
+    --admin-ink:#151515;
+    --admin-muted:#6b7280;
+    --admin-border:#e5e7eb;
+    --admin-bg:#f6f7f9;
+  }
+  body.admin-dashboard #dashboard{background:var(--admin-bg)!important}
+  body.admin-dashboard #dashboard main{background:radial-gradient(circle at 12% 0%,rgba(225,29,46,.09),transparent 28rem),linear-gradient(180deg,#fff 0%,#f6f7f9 100%)!important}
+  body.admin-dashboard .sidebar{background:linear-gradient(180deg,#090909 0%,#171717 62%,#300707 100%)!important;border-right:1px solid rgba(255,255,255,.08)!important;box-shadow:18px 0 45px rgba(0,0,0,.18)}
+  body.admin-dashboard .sidebar .text-white,body.admin-dashboard .sidebar #sidebar-biz-name{color:#fff!important}
+  body.admin-dashboard #sidebar-biz-name{font-size:1rem;font-weight:900;letter-spacing:.01em}
+  body.admin-dashboard .sidebar #sidebar-client-logo{display:none!important}
+  body.admin-dashboard .sidebar .text-xs.uppercase{color:#ef9ca4!important}
+  body.admin-dashboard .sidebar-link{color:#d1d5db!important;border-radius:12px!important}
+  body.admin-dashboard .sidebar-link i{color:#f87171!important}
+  body.admin-dashboard .sidebar-link:hover{background:rgba(255,255,255,.08)!important;color:#fff!important;border-color:rgba(255,255,255,.12);transform:translateX(2px)}
+  body.admin-dashboard .sidebar-link.active{background:linear-gradient(135deg,#e11d2e,#7f1d1d)!important;color:#fff!important;box-shadow:0 16px 34px rgba(225,29,46,.22)}
+  body.admin-dashboard .sidebar-link.active i{color:#fff!important}
+  body.admin-dashboard .card,body.admin-dashboard .stat-card{background:#fff!important;border-color:var(--admin-border)!important;box-shadow:0 16px 38px rgba(0,0,0,.06)!important}
+  body.admin-dashboard .card .text-white,body.admin-dashboard .stat-card .text-white,body.admin-dashboard h2.text-white,body.admin-dashboard h3.text-white,body.admin-dashboard h4.text-white,body.admin-dashboard p.text-white{color:var(--admin-ink)!important}
+  body.admin-dashboard .text-sprint-400{color:var(--admin-red)!important}
+  body.admin-dashboard .text-slate-400,body.admin-dashboard .text-slate-300{color:#4b5563!important}
+  body.admin-dashboard .text-slate-500{color:#6b7280!important}
+  body.admin-dashboard .border-slate-700,body.admin-dashboard .border-slate-800{border-color:#e5e7eb!important}
+  body.admin-dashboard .bg-slate-900\/40,body.admin-dashboard .hover\:bg-slate-900\/40:hover{background:#f9fafb!important}
+  body.admin-dashboard .btn-primary{background:linear-gradient(135deg,#111,#e11d2e)!important;color:#fff!important;box-shadow:0 12px 26px rgba(225,29,46,.18)}
+  body.admin-dashboard .btn-secondary{background:#fff1f2!important;border-color:#fecdd3!important;color:#991b1b!important}
+  body.admin-dashboard .btn-ghost{background:#fff!important;border-color:#d1d5db!important;color:#111827!important}
+  body.admin-dashboard .btn-ghost:hover:not(:disabled){background:#fff1f2!important;border-color:#fda4af!important;color:#991b1b!important}
+  body.admin-dashboard .btn-warning{background:linear-gradient(135deg,#111,#b45309)!important;color:#fff!important}
+  body.admin-dashboard .btn-danger{background:linear-gradient(135deg,#991b1b,#ef4444)!important;color:#fff!important}
+  body.admin-dashboard .badge-active{background:#f0fdf4!important;color:#166534!important;border-color:#bbf7d0!important}
+  body.admin-dashboard .badge-pending{background:#fff7ed!important;color:#9a3412!important;border-color:#fed7aa!important}
+  body.admin-dashboard .badge-suspended{background:#f3f4f6!important;color:#374151!important;border-color:#d1d5db!important}
+  body.admin-dashboard .badge-rejected{background:#fef2f2!important;color:#991b1b!important;border-color:#fecaca!important}
+  body.admin-dashboard table thead tr{background:#fafafa}
+  body.admin-dashboard table tbody tr:hover{background:#fff7f8!important}
+  body.admin-dashboard .field,body.admin-dashboard input,body.admin-dashboard select,body.admin-dashboard textarea{background:#fff!important;border-color:#d1d5db!important;color:#111827!important}
+  body.admin-dashboard .field:focus,body.admin-dashboard input:focus,body.admin-dashboard select:focus,body.admin-dashboard textarea:focus{border-color:var(--admin-red)!important;box-shadow:0 0 0 4px rgba(225,29,46,.13)!important}
+  body.admin-dashboard #mobile-menu-btn{background:#111!important;color:#fff!important;border-color:#27272a!important}
+  body.admin-dashboard #dashboard-content:before{content:"SprintSales Control Room";display:block;color:#991b1b;font-weight:900;letter-spacing:.12em;text-transform:uppercase;font-size:.72rem;margin-bottom:-.35rem}
+  @media(max-width:768px){
+    body.client-dashboard{background:#eef5fd!important}
+    body.client-dashboard #dashboard{display:block!important;min-height:100vh}
+    body.client-dashboard #dashboard main{padding:76px 14px calc(112px + env(safe-area-inset-bottom,0px))!important;min-height:100vh;background:linear-gradient(180deg,#f7fbff 0%,#eef5fd 100%)!important}
+    body.client-dashboard #dashboard-content{gap:.9rem}
+    body.client-dashboard #dashboard-content>div.space-y-6{gap:.9rem!important}
+    body.client-dashboard .sidebar{display:none!important}
+    body.client-dashboard .sidebar.open{display:flex!important;position:fixed;top:0;left:0;bottom:0;z-index:70;width:min(86vw,320px)!important;padding:18px!important;border-radius:0 24px 24px 0!important;box-shadow:24px 0 60px rgba(7,31,63,.22)!important}
+    body.client-dashboard.mobile-menu-open:before{content:"";position:fixed;inset:0;background:rgba(7,31,63,.32);z-index:60;backdrop-filter:blur(3px)}
+    body.client-dashboard #mobile-menu-btn{display:flex!important;top:14px!important;left:14px!important;width:46px;height:46px;border-radius:16px!important;background:#fff!important;color:var(--ss-navy)!important;border:1px solid var(--ss-border)!important;box-shadow:0 12px 28px rgba(7,31,63,.12)!important}
+    body.client-dashboard #mobile-menu-btn i{font-size:1rem}
+    body.client-dashboard #dashboard main:before{content:attr(data-mobile-title);position:fixed;left:70px;right:14px;top:14px;height:46px;border-radius:16px;background:rgba(255,255,255,.92);border:1px solid var(--ss-border);box-shadow:0 12px 28px rgba(7,31,63,.09);display:flex;align-items:center;padding:0 14px;color:var(--ss-navy);font-weight:900;z-index:45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    body.client-dashboard .mobile-bottom-nav{position:fixed;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:55;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:8px;background:rgba(255,255,255,.94);border:1px solid rgba(203,217,234,.95);border-radius:24px;box-shadow:0 18px 48px rgba(7,31,63,.2);backdrop-filter:blur(18px)}
+    body.client-dashboard .mobile-nav-item{border:0;background:transparent;border-radius:18px;min-height:56px;padding:7px 4px;color:#60758c;font-size:.68rem;font-weight:900;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+    body.client-dashboard .mobile-nav-item i{font-size:1rem}
+    body.client-dashboard .mobile-nav-item.active{background:linear-gradient(135deg,var(--ss-navy),#1556af);color:#fff;box-shadow:0 10px 22px rgba(7,31,63,.2)}
+    body.client-dashboard .mobile-nav-item.locked{opacity:.52}
+    body.client-dashboard .card,body.client-dashboard .stat-card,body.client-dashboard .metric-tile{border-radius:20px!important;box-shadow:0 12px 30px rgba(7,31,63,.07)!important}
+    body.client-dashboard .command-hero{padding:18px!important;border-radius:24px!important}
+    body.client-dashboard .command-hero .flex.items-center.gap-4{align-items:flex-start!important}
+    body.client-dashboard .overview-logo{width:58px;height:58px;border-radius:18px}
+    body.client-dashboard .command-hero h2{font-size:1.55rem!important;line-height:1.15!important}
+    body.client-dashboard .command-hero p{font-size:.82rem!important}
+    body.client-dashboard .command-chip{font-size:.68rem;padding:6px 8px}
+    body.client-dashboard .dashboard-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:.75rem!important}
+    body.client-dashboard .metric-tile,body.client-dashboard .stat-card{padding:14px!important;min-height:116px}
+    body.client-dashboard .metric-tile .text-2xl,body.client-dashboard .stat-card .text-2xl{font-size:1.45rem!important}
+    body.client-dashboard .metric-icon{width:36px;height:36px;border-radius:13px}
+    body.client-dashboard .grid{gap:.8rem!important}
+    body.client-dashboard .grid-cols-1,body.client-dashboard .md\:grid-cols-2,body.client-dashboard .md\:grid-cols-3,body.client-dashboard .lg\:grid-cols-2,body.client-dashboard .lg\:grid-cols-3,body.client-dashboard .xl\:grid-cols-2,body.client-dashboard .xl\:grid-cols-3,body.client-dashboard .xl\:grid-cols-4{grid-template-columns:1fr!important}
+    body.client-dashboard h2.text-xl{font-size:1.35rem!important;line-height:1.2}
+    body.client-dashboard h3{line-height:1.25}
+    body.client-dashboard .btn{min-height:46px!important;padding:.72rem .95rem!important;border-radius:15px!important}
+    body.client-dashboard .btn.text-xs{font-size:.82rem!important}
+    body.client-dashboard .field,body.client-dashboard input,body.client-dashboard select,body.client-dashboard textarea{min-height:48px!important;font-size:16px!important;border-radius:15px!important}
+    body.client-dashboard textarea.field{min-height:120px!important}
+    body.client-dashboard label{font-size:.82rem!important}
+    body.client-dashboard .spec-chip{min-height:42px;padding:.62rem .78rem;font-size:.82rem;border-radius:14px}
+    body.client-dashboard .image-slot-box{min-height:132px;border-radius:18px}
+    body.client-dashboard .overflow-x-auto{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:18px}
+    body.client-dashboard table{min-width:760px}
+    body.client-dashboard table img.w-16,body.client-dashboard table .w-16.h-16{width:92px!important;height:92px!important;border-radius:18px!important}
+    body.client-dashboard th,body.client-dashboard td{padding:14px!important}
+    body.client-dashboard .toast{left:12px!important;right:12px!important;top:12px!important;max-width:none!important;border-radius:18px!important}
+    body.client-dashboard .nice-dialog-backdrop{align-items:flex-end;padding:12px}
+    body.client-dashboard .nice-dialog-card{border-radius:24px;padding:20px;max-height:86vh;overflow:auto}
+    body.client-dashboard .nice-dialog-actions{display:grid;grid-template-columns:1fr 1fr}
+    body.client-dashboard .client-footer{padding:20px 0 8px;margin-bottom:6px}
+    body.admin-dashboard .mobile-bottom-nav{display:none!important}
+    .sidebar{display:none!important}
+    .sidebar.open{display:flex!important;position:fixed;top:0;left:0;bottom:0;z-index:40;box-shadow:18px 0 40px rgba(15,42,77,.18)}
+    #dashboard main{padding-top:4rem}
+  }
+  @media(min-width:769px){.mobile-bottom-nav{display:none!important}}
+</style>
+<script src="dashboard.js?v=20260521-grand-redesign"></script>
+</body>
+</html>

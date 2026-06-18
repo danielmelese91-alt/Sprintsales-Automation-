@@ -1,0 +1,29 @@
+# Runtime dependencies
+node_modules/
+
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+
+# Live tenant data, uploaded media, and generated backups
+data/
+backups/
+
+# Logs and process output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local backup snapshots created during refactors
+*.bak
+*.bak-*
+*.bak.*
+*.tmp
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
