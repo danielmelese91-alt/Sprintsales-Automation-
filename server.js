@@ -27,6 +27,7 @@ import { createMatchingService } from './src/services/matching-service.js';
 import { createRecommendationService } from './src/services/recommendation-service.js';
 import { createIntentRecoveryService } from './src/services/intent-recovery-service.js';
 import { createAnnouncementService } from './src/services/announcement-service.js';
+import { createPaymentVerificationService } from './src/services/payment-verification-service.js';
 import { createWatermarkedProductImage, watermarkedPathForOriginal } from './src/services/product-watermark-service.js';
 import { createPlatformStore } from './src/store/platform-store.js';
 import {
@@ -95,6 +96,7 @@ const botRunners = new Map();
 const accountRunners = new Map();
 const execFileAsync = promisify(execFile);
 const fetchWithTimeout = createFetchWithTimeout(aiRequestTimeoutMs);
+const billingPlanIsPro = client => String(client?.billing?.plan || client?.subscriptionPlan || client?.settings?.subscriptionPlan || 'basic').toLowerCase() === 'pro';
 
 const sameOriginGuard = (req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
@@ -395,6 +397,12 @@ const safeClient = client => ({
     accountSessionString: client.settings.accountSessionString ? 'configured' : '',
     accountPhoneCodeHash: client.settings.accountPhoneCodeHash ? 'configured' : '',
     aiUsage: aiUsageStatus(client.settings),
+    paymentVerification: paymentVerificationService?.publicStatus?.(client) || {
+      mode: client.settings.paymentVerificationMode || 'manual',
+      automaticAvailable: false,
+      apiConfigured: false,
+      requiresPro: true
+    },
     delivery: {
       ...defaultSettings().delivery,
       ...(client.settings.delivery || {})
@@ -584,6 +592,11 @@ const {
   defaultSettings
 });
 
+const paymentVerificationService = createPaymentVerificationService({
+  fetchWithTimeout,
+  now,
+  isProClient: billingPlanIsPro
+});
 
 const {
   orderStatusCustomerMessage,
@@ -743,6 +756,7 @@ const {
   findProductCategoryMatches,
   resolveProviderKey,
   extractOrderDetails,
+  paymentVerificationService,
   clientQualityScore,
   clientQualityEvents
 });
@@ -943,6 +957,7 @@ const {
   findProductByImageDescription,
   shouldTreatImageAsPaymentProof,
   recordPaymentProof,
+  paymentVerificationService,
   sendClientNotification,
   transcribeVoiceMessage,
   orderIntent,
@@ -1019,6 +1034,7 @@ const routeDeps = {
     parsePaymentSms,
     path,
     paymentMatchSummary,
+    paymentVerificationService,
     previewStatsForClient,
     productImageDir,
     productPostingSettings,
@@ -1104,7 +1120,8 @@ initProductflow({
   sendClientNotification,
   getBot: clientId => botRunners.get(clientId),
   isProClient,
-  findCheckoutMatch
+  findCheckoutMatch,
+  paymentVerificationService
 });
 
 const processAlertMessage = (label, error) => {

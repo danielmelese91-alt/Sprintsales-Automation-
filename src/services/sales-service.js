@@ -25,6 +25,7 @@ export const createSalesService = (deps = {}) => {
     findProductCategoryMatches,
     resolveProviderKey,
     extractOrderDetails,
+    paymentVerificationService,
     clientQualityScore,
     clientQualityEvents
   } = deps;
@@ -725,6 +726,94 @@ const notifyServiceBooking = async ({ data, client, booking, reason = 'new' }) =
   await sendClientNotification(data, client, `service-booking-${booking.id}-${Date.now()}`, lines.join('\n'), 'draftOrders', 0);
 };
 
+const publicOrderCode = orderOrId => {
+  const id = typeof orderOrId === 'string' ? orderOrId : orderOrId?.id;
+  const short = String(id || '').slice(-8);
+  return short ? `#${short}` : '';
+};
+
+const autoVerifyEnabled = client => Boolean(paymentVerificationService?.canUseAutomatic?.(client));
+
+const applyAutoVerifiedPayment = async ({ data, client, conversation, order, proof, ctx, result }) => {
+  const verifiedAt = now();
+  order.status = 'confirmed';
+  order.paymentStatus = 'paid';
+  order.paymentVerifiedAt = verifiedAt;
+  order.paymentVerifiedBy = 'verify.et';
+  order.paymentAutoVerified = true;
+  order.paymentVerificationReference = result.reference || proof?.extracted?.transactionId || '';
+  order.paymentVerificationRequestId = result.verifyRequestId || '';
+  order.customerConfirmedOrder = true;
+  order.paymentProofId = proof.id;
+  order.awaitingPaymentProof = false;
+  order.deliveryStatus = order.deliveryStatus === 'delivered' ? order.deliveryStatus : 'not-started';
+  order.deliveryStartedAt = order.deliveryStartedAt || verifiedAt;
+  order.deliveryMaxHours = Math.max(1, Number(order.deliveryMaxHours || order.deliveryEtaHours || 24) || 24);
+  order.deliveryFeedbackAvailableAt = order.deliveryFeedbackAvailableAt || new Date(new Date(order.deliveryStartedAt).getTime() + (order.deliveryMaxHours * 60 * 60 * 1000 / 3)).toISOString();
+  order.updatedAt = verifiedAt;
+
+  proof.status = 'verified';
+  proof.verifiedAt = verifiedAt;
+  proof.verifiedBy = 'verify.et';
+  proof.verificationNote = result.reason || 'Payment automatically verified by Verify.et.';
+  proof.extracted ||= {};
+  if (result.reference) proof.extracted.transactionId = result.reference;
+  if (result.amount) proof.extracted.amount = String(result.amount);
+  if (result.bank) proof.extracted.provider = result.bank;
+  proof.updatedAt = verifiedAt;
+
+  conversation.stage = 'completed';
+  conversation.stageState = {};
+
+  if (order.telegramChatId && ctx?.telegram) {
+    await ctx.telegram.sendMessage(order.telegramChatId, [
+      `Payment confirmed. Thank you, ${order.customerName || 'dear customer'}!`,
+      '',
+      'Your payment was verified automatically.',
+      `Tracking code: ${publicOrderCode(order)}.`,
+      `We are preparing: ${[order.productName, order.selectedSize, order.selectedColor, order.selectedOption].filter(Boolean).join(' ') || 'your order'}.`,
+      '',
+      `You are always welcome at ${client.businessName}.`
+    ].join('\n')).catch(error => console.warn('Auto payment customer notice failed:', error.message));
+  }
+
+  await sendClientNotification(data, client, `auto-payment-${proof.id}`, [
+    `Payment automatically verified for ${client.businessName}.`,
+    `Order: ${publicOrderCode(order)} (${order.id})`,
+    `Product: ${[order.productCode, order.productName].filter(Boolean).join(' | ')}`,
+    `Total: ${order.total || 0} Birr`,
+    result.reference ? `Reference: ${result.reference}` : '',
+    result.verifyRequestId ? `Verify.et request: ${result.verifyRequestId}` : '',
+    `Customer: ${order.customerName || proof.customerName || 'Customer'}`,
+    order.phone ? `Phone: ${order.phone}` : ''
+  ].filter(Boolean).join('\n'), 'orders', 0);
+};
+
+const applyDuplicatePaymentProof = async ({ data, client, conversation, order, proof, ctx, result }) => {
+  const rejectedAt = now();
+  proof.status = 'rejected';
+  proof.verificationNote = result.reason || 'Duplicate payment reference.';
+  proof.updatedAt = rejectedAt;
+  order.paymentStatus = 'rejected';
+  order.paymentRejectedAt = rejectedAt;
+  order.paymentProofId = proof.id;
+  order.updatedAt = rejectedAt;
+  conversation.stage = 'awaiting_payment_proof';
+  conversation.stageState = { stage: 'awaiting_payment_proof', orderId: order.id };
+  if (order.telegramChatId && ctx?.telegram) {
+    await ctx.telegram.sendMessage(
+      order.telegramChatId,
+      'We could not accept that payment proof because the transaction reference was already used. Please send the correct payment proof or contact support.'
+    ).catch(error => console.warn('Duplicate payment notice failed:', error.message));
+  }
+  await sendClientNotification(data, client, `duplicate-payment-${proof.id}`, [
+    `Duplicate payment reference blocked for ${client.businessName}.`,
+    `Order: ${publicOrderCode(order)} (${order.id})`,
+    result.reference ? `Reference: ${result.reference}` : '',
+    result.reason || ''
+  ].filter(Boolean).join('\n'), 'orders', 0);
+};
+
 const recordPaymentProof = async ({ data, client, conversation, ctx }) => {
   data.paymentProofs ||= [];
   const photos = ctx.message?.photo || [];
@@ -768,6 +857,19 @@ const recordPaymentProof = async ({ data, client, conversation, ctx }) => {
     currentOrder.status = currentOrder.status === 'draft' ? 'confirmed' : currentOrder.status;
     currentOrder.awaitingPaymentProof = false;
     currentOrder.updatedAt = now();
+  }
+
+  if (currentOrder && autoVerifyEnabled(client)) {
+    const autoResult = await paymentVerificationService.verifyPaymentProof({ data, client, order: currentOrder, proof });
+    if (autoResult.action === 'verified') {
+      await applyAutoVerifiedPayment({ data, client, conversation, order: currentOrder, proof, ctx, result: autoResult });
+      return proof;
+    }
+    if (autoResult.action === 'duplicate') {
+      await applyDuplicatePaymentProof({ data, client, conversation, order: currentOrder, proof, ctx, result: autoResult });
+      return proof;
+    }
+    proof.verificationNote = autoResult.reason || proof.verificationNote || '';
   }
 
   const ownerChatId = ownerPrivateChatId(client);

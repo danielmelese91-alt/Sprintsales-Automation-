@@ -79,6 +79,8 @@ export function createPlatformStore(deps) {
     reminders: [],
     bookings: [],
     paymentProofs: [],
+    paymentVerifications: [],
+    paymentVerificationReferences: [],
     customers: [],
     customerNotes: [],
     products: [],
@@ -121,6 +123,8 @@ export function createPlatformStore(deps) {
     data.reminders ||= [];
     data.bookings ||= [];
     data.paymentProofs ||= [];
+    data.paymentVerifications ||= [];
+    data.paymentVerificationReferences ||= [];
     data.customers ||= [];
     data.customerNotes ||= [];
     data.productPosts ||= [];

@@ -820,7 +820,12 @@ const paymentInstructionsText = (client, order) => {
     lines.push(`   ${t(client, 'PAYMENT_NAME', { accountName: option.accountName }, `Name: ${option.accountName}`)}`);
   });
   lines.push('');
-  lines.push(t(client, 'PAYMENT_AFTER_PAY', {}, 'After payment, send your screenshot, transfer SMS, or copied bank/Telebirr message here.'));
+  if (automaticPaymentEnabled(client)) {
+    lines.push(automaticPaymentPrompt(client));
+    lines.push('Please send it as text, not as a screenshot, so I can verify it automatically.');
+  } else {
+    lines.push(t(client, 'PAYMENT_AFTER_PAY', {}, 'After payment, send your screenshot, transfer SMS, or copied bank/Telebirr message here.'));
+  }
   return lines.join('\n');
 };
 
@@ -828,6 +833,21 @@ const paymentCopyButtons = client => validPaymentOptions(client).slice(0, 3).map
   text: `Copy ${option.method} account`,
   copy_text: { text: option.accountNumber }
 }]));
+
+const paymentVerifier = () => deps.paymentVerificationService || null;
+const automaticPaymentEnabled = client => Boolean(paymentVerifier()?.canUseAutomatic?.(client));
+const automaticPaymentPrompt = client => t(
+  client,
+  'PAYMENT_AUTO_PROOF_PROMPT',
+  {},
+  'After payment, paste the bank/Telebirr SMS you received or the transaction/reference number here.'
+);
+const paymentProofPromptForClient = (client, fallback = '') => automaticPaymentEnabled(client)
+  ? `${automaticPaymentPrompt(client)}\n\nPlease send it as text, not as a screenshot.`
+  : t(client, 'PAYMENT_PROOF_PROMPT', {}, fallback || 'Please send your payment screenshot, transfer SMS, or copied bank/Telebirr message here.');
+const paymentReviewNoteForClient = client => automaticPaymentEnabled(client)
+  ? 'I will verify the SMS/reference automatically. If anything is unclear, the shop will review it.'
+  : t(client, 'PAYMENT_REVIEW_NOTE');
 
 const moneyNumber = value => {
   const n = Number(String(value || '').replace(/[^0-9.]/g, ''));
@@ -2902,7 +2922,9 @@ async function handlePayment(client, conversation, orderId) {
   reply += `🚚 Delivery: ${deliveryFee} Birr\n`;
   reply += `**Total: ${total} Birr**\n\n`;
   reply += `${methodsText}\n\n`;
-  reply += `Please complete payment and send the **payment screenshot** here.`;
+  reply += automaticPaymentEnabled(client)
+    ? `Please complete payment and paste the bank/Telebirr SMS or transaction reference here.`
+    : `Please complete payment and send the **payment proof** here.`;
 
   conversation.stageState = { ...state, order };
   conversation.stage = 'payment';
@@ -2968,7 +2990,7 @@ async function handlePaymentScreenshot(data, client, conversation, ctx, photoFil
 
   return {
     handled: true,
-    reply: '✅ **Payment screenshot received!**\n\nYour payment is being verified. We\'ll update you shortly.',
+    reply: '✅ **Payment proof received!**\n\nYour payment is being verified. We\'ll update you shortly.',
     buttons: [[{ text: '🏠 Main Menu', callback_data: 'productflow:main_menu' }]],
     stage: 'owner_verification'
   };
@@ -3043,12 +3065,152 @@ async function notifyOwnerPaymentProof(data, client, order, proof, ctx, proofKin
   return false;
 }
 
+async function notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, status = 'verified') {
+  const ownerChatId = privateOwnerChatId(client);
+  const success = status === 'verified';
+  const details = [
+    '<b>SprintSales Automation</b>',
+    `<b>Business:</b> ${client.businessName || client.id}`,
+    '',
+    success ? '<b>Payment automatically verified</b>' : '<b>Payment proof blocked</b>',
+    `Order: ${publicOrderCode(order)} (${order.id})`,
+    `Product: ${[order.productName, order.productCode].filter(Boolean).join(' | ')}`,
+    order.quantity ? `Quantity: ${order.quantity}` : '',
+    order.selectedSize ? `Size: ${order.selectedSize}` : '',
+    order.selectedColor ? `Color: ${order.selectedColor}` : '',
+    order.selectedOption ? `Option: ${order.selectedOption}` : '',
+    `Expected total: ${order.total || 0} Birr`,
+    result?.amount ? `Verified amount: ${result.amount} Birr` : '',
+    result?.reference ? `Transaction/ref: ${result.reference}` : proof?.extracted?.transactionId ? `Transaction/ref: ${proof.extracted.transactionId}` : '',
+    result?.bank ? `Provider: ${String(result.bank).toUpperCase()}` : '',
+    result?.verifyRequestId ? `Verify.et request: ${result.verifyRequestId}` : '',
+    '',
+    `Customer: ${order.customerName || proof.customerName || 'Customer'}`,
+    order.phone ? `Phone: ${order.phone}` : '',
+    order.deliveryLocation ? `Address: ${order.deliveryLocation}` : '',
+    result?.reason ? `Decision: ${result.reason}` : ''
+  ].filter(Boolean).join('\n');
+
+  if (ownerChatId && ctx?.telegram) {
+    try {
+      await ctx.telegram.sendMessage(ownerChatId, details, { parse_mode: 'HTML' });
+      return true;
+    } catch (error) {
+      console.warn(`Automatic payment owner notify failed for ${client.businessName}:`, error.message);
+    }
+  }
+  await deps.sendClientNotification?.(data, client, `auto-payment-${proof.id}`, details.replace(/<[^>]+>/g, ''), 'orders', 0);
+  return false;
+}
+
+async function finalizeVerifiedPayment(data, client, conversation, order, proof, ctx, result = {}, options = {}) {
+  const verifiedAt = new Date().toISOString();
+  order.status = 'confirmed';
+  order.paymentStatus = 'paid';
+  order.paymentVerifiedAt = verifiedAt;
+  order.ownerVerifiedAt = order.ownerVerifiedAt || '';
+  order.paymentVerifiedBy = result.source || 'verify.et';
+  order.paymentVerifiedByChatId = '';
+  order.paymentAutoVerified = true;
+  order.paymentVerificationReference = result.reference || proof?.extracted?.transactionId || '';
+  order.paymentVerificationRequestId = result.verifyRequestId || '';
+  order.customerConfirmedOrder = true;
+  order.paymentProofId = proof?.id || order.paymentProofId || '';
+  order.deliveryStatus = order.deliveryStatus === 'delivered' ? order.deliveryStatus : 'not-started';
+  order.deliveryStartedAt = order.deliveryStartedAt || verifiedAt;
+  order.deliveryMaxHours = Math.max(1, Number(order.deliveryMaxHours || order.deliveryEtaHours || 24) || 24);
+  const started = new Date(order.deliveryStartedAt);
+  order.deliveryFeedbackAvailableAt = order.deliveryFeedbackAvailableAt || new Date(started.getTime() + (order.deliveryMaxHours * 60 * 60 * 1000 / 3)).toISOString();
+  order.updatedAt = verifiedAt;
+
+  if (proof) {
+    proof.status = 'verified';
+    proof.verifiedAt = verifiedAt;
+    proof.verifiedBy = 'verify.et';
+    proof.verificationNote = result.reason || 'Payment automatically verified by Verify.et.';
+    proof.extracted ||= {};
+    if (result.reference) proof.extracted.transactionId = result.reference;
+    if (result.amount) proof.extracted.amount = String(result.amount);
+    if (result.bank) proof.extracted.provider = result.bank;
+    proof.updatedAt = verifiedAt;
+  }
+
+  const customerProfile = upsertCustomerProfile(data, client, conversation, order);
+  if (order.discountReason === 'birthday_week' && order.birthdayDiscountYear && customerProfile) {
+    customerProfile.birthdayDiscountYears = Array.from(new Set([
+      ...(Array.isArray(customerProfile.birthdayDiscountYears) ? customerProfile.birthdayDiscountYears : []),
+      String(order.birthdayDiscountYear)
+    ]));
+  }
+
+  conversation.stageState = {};
+  conversation.stage = 'completed';
+
+  if (options.notifyCustomer !== false && order.telegramChatId && ctx?.telegram) {
+    const productHint = [order.productName, order.selectedSize, order.selectedColor, order.selectedOption].filter(Boolean).join(' ');
+    const message = [
+      t(client, 'PAYMENT_CONFIRMED', { customerName: order.customerName || 'dear customer' }),
+      '',
+      'Your payment was verified automatically.',
+      t(client, 'PAYMENT_TRACKING_CODE', { trackingCode: publicOrderCode(order) }),
+      productHint ? t(client, 'PAYMENT_PREPARING', { productHint }) : t(client, 'PAYMENT_PREPARING', { productHint: 'your order' }),
+      '',
+      t(client, 'PAYMENT_THANK_YOU', { businessName: client.businessName }),
+      '',
+      deliveryProgressText(order, client)
+    ].join('\n');
+    await ctx.telegram.sendMessage(order.telegramChatId, message, {
+      reply_markup: {
+        inline_keyboard: localizeButtons(client, [
+          trackingCopyButton(order),
+          [{ text: 'Track Delivery', callback_data: 'productflow:track_order' }],
+          [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
+        ])
+      }
+    }).catch(error => {
+      console.warn('Automatic customer payment confirmation failed:', error.message);
+    });
+  }
+}
+
+async function tryAutomaticPaymentVerification(data, client, conversation, order, proof, ctx, options = {}) {
+  const verifier = paymentVerifier();
+  if (!verifier?.verifyPaymentProof) return { action: 'manual_review', reason: 'Payment verifier is not configured.' };
+  const result = await verifier.verifyPaymentProof({ data, client, order, proof });
+  if (result.action === 'verified') {
+    await finalizeVerifiedPayment(data, client, conversation, order, proof, ctx, { ...result, source: 'verify.et' }, options);
+    await notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, 'verified');
+    return result;
+  }
+  if (result.action === 'duplicate') {
+    const rejectedAt = new Date().toISOString();
+    proof.status = 'rejected';
+    proof.verificationNote = result.reason || 'Duplicate payment reference.';
+    proof.updatedAt = rejectedAt;
+    order.paymentStatus = 'rejected';
+    order.paymentRejectedAt = rejectedAt;
+    order.paymentProofId = proof.id;
+    order.updatedAt = rejectedAt;
+    conversation.stage = 'awaiting_payment_proof';
+    conversation.stageState = { stage: 'awaiting_payment_proof', orderId: order.id };
+    if (options.notifyCustomer !== false && order.telegramChatId && ctx?.telegram) {
+      await ctx.telegram.sendMessage(
+        order.telegramChatId,
+        `We could not accept that payment proof because the transaction reference was already used. Please send the correct payment proof or contact support.`
+      ).catch(error => console.warn('Duplicate payment customer notice failed:', error.message));
+    }
+    await notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, 'duplicate');
+    return result;
+  }
+  return result;
+}
+
 async function handlePaymentProofText(data, client, conversation, ctx, text) {
   const order = paymentProofOrderForConversation(data, client, conversation);
   if (!order) {
     return {
       handled: true,
-      reply: t(client, 'PAYMENT_PROOF_PROMPT', {}, 'Please confirm an order first, then send the payment screenshot, transfer SMS, or copied bank message here.'),
+      reply: paymentProofPromptForClient(client, 'Please confirm an order first, then send the payment screenshot, transfer SMS, or copied bank message here.'),
       buttons: [
         [{ text: 'Browse Products', callback_data: 'productflow:explore' }],
         [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
@@ -3086,6 +3248,42 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
   order.updatedAt = new Date().toISOString();
   conversation.stage = 'owner_verification';
   conversation.stageState = { stage: 'owner_verification', orderId: order.id };
+
+  if (automaticPaymentEnabled(client)) {
+    const autoResult = await tryAutomaticPaymentVerification(data, client, conversation, order, proof, ctx, { notifyCustomer: false });
+    if (autoResult.action === 'verified') {
+      return {
+        handled: true,
+        reply: [
+          t(client, 'PAYMENT_CONFIRMED', { customerName: order.customerName || 'dear customer' }),
+          '',
+          'Your payment was verified automatically.',
+          t(client, 'PAYMENT_TRACKING_CODE', { trackingCode: publicOrderCode(order) }),
+          '',
+          t(client, 'PAYMENT_THANK_YOU', { businessName: client.businessName })
+        ].join('\n'),
+        buttons: [
+          trackingCopyButton(order),
+          [{ text: 'Track Delivery', callback_data: 'productflow:track_order' }],
+          [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
+        ],
+        stage: 'completed'
+      };
+    }
+    if (autoResult.action === 'duplicate') {
+      return {
+        handled: true,
+        reply: 'This payment reference was already used before. Please send the correct payment proof or contact support.',
+        buttons: [
+          [{ text: 'Submit Payment Proof', callback_data: 'productflow:payment_proof' }],
+          [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
+        ],
+        stage: 'awaiting_payment_proof'
+      };
+    }
+    proof.verificationNote = autoResult.reason || proof.verificationNote || '';
+  }
+
   await notifyOwnerPaymentProof(data, client, order, proof, ctx, 'transfer SMS/text');
   return {
     handled: true,
@@ -3254,7 +3452,7 @@ async function handleOwnerReject(data, client, conversation, orderId, ctx) {
   if (order.telegramChatId && ctx?.telegram) {
     await ctx.telegram.sendMessage(
       order.telegramChatId,
-      `We could not confirm the payment for order ${order.id}. Please check the screenshot and send the correct payment proof, or talk to support.`
+      `We could not confirm the payment for order ${order.id}. Please check and send the correct payment proof, or talk to support.`
     ).catch(error => console.warn('Customer payment rejection notice failed:', error.message));
   }
 
@@ -3925,7 +4123,7 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
           );
           if (!order) {
             result = {
-              reply: t(client, 'PAYMENT_PROOF_PROMPT', {}, 'Please confirm an order first, then send the payment screenshot here.'),
+              reply: paymentProofPromptForClient(client, 'Please confirm an order first, then send the payment screenshot here.'),
               buttons: [
                 [{ text: 'Browse Products', callback_data: 'productflow:explore' }],
                 [{ text: 'Track Order', callback_data: 'productflow:track_order' }],
@@ -3939,7 +4137,7 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
         conversation.stage = 'awaiting_payment_proof';
         conversation.stageState = { stage: 'awaiting_payment_proof', orderId: conversation.lastOrderId || conversation.stageState?.orderId || '' };
         result = {
-          reply: `${t(client, 'PAYMENT_PROOF_PROMPT')}\n\n${t(client, 'PAYMENT_REVIEW_NOTE')}`,
+          reply: `${paymentProofPromptForClient(client)}\n\n${paymentReviewNoteForClient(client)}`,
           buttons: [[{ text: '🏠 Main Menu', callback_data: 'productflow:main_menu' }]],
           stage: 'awaiting_payment_proof'
         };

@@ -118,7 +118,8 @@ export const defaultSettings = () => ({
     holiday: { enabled: false, type: 'percent', value: 0, maxPerWeek: 0 },
     codes: []
   },
-  paymentOptions: []
+  paymentOptions: [],
+  paymentVerificationMode: 'manual'
 });
 
 export const normalizeBusinessType = value => {

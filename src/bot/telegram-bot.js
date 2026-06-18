@@ -85,6 +85,7 @@ export function createTelegramBotRuntime(deps) {
     downloadTelegramFile,
     shouldTreatImageAsPaymentProof,
     recordPaymentProof,
+    paymentVerificationService,
     sendClientNotification,
     transcribeVoiceMessage,
     orderIntent,
@@ -931,6 +932,20 @@ export function createTelegramBotRuntime(deps) {
       const treatAsPaymentProof = conversation.stage === 'awaiting_payment_proof' ||
         likelyPaymentContext ||
         shouldTreatImageAsPaymentProof({ caption, analysis: { description: '', isPaymentProof: false, confidence: 0, type: 'unclear' }, productMatch: null, conversation, activeOrder });
+      if (treatAsPaymentProof && paymentVerificationService?.canUseAutomatic?.(currentClient)) {
+        data.messages.push({
+          id: uid('msg'),
+          clientId: currentClient.id,
+          conversationId: conversation.id,
+          direction: 'inbound',
+          text: `[Payment proof image ignored in automatic mode] ${caption || ''}`.trim(),
+          createdAt: now()
+        });
+        conversation.pendingReplyToken = '';
+        await writeData(data);
+        await ctx.reply('For automatic payment verification, please paste the bank/Telebirr SMS you received or the transaction/reference number as text. Screenshots are not used for automatic verification.').catch(console.error);
+        return;
+      }
       const proof = treatAsPaymentProof
         ? await recordPaymentProof({ data, client: currentClient, conversation, ctx })
         : null;
@@ -945,6 +960,12 @@ export function createTelegramBotRuntime(deps) {
       if (proof) {
         conversation.pendingReplyToken = '';
         await writeData(data);
+        if (proof.status === 'verified' && proof.verifiedBy === 'verify.et') {
+          return;
+        }
+        if (proof.status === 'rejected' && /duplicate payment/i.test(String(proof.verificationNote || ''))) {
+          return;
+        }
         await ctx.reply(`${t(currentClient, 'PAYMENT_PROOF_RECEIVED')}\n\n${t(currentClient, 'PAYMENT_WAIT_REVIEW')}`).catch(console.error);
         return;
       }

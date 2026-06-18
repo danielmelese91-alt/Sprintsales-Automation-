@@ -1371,7 +1371,10 @@ export function createPublicRoutes(deps) {
         zones: nextDeliveryZones
       },
       discounts: has('discounts') ? normalizeDiscountSettings(b.discounts) : normalizeDiscountSettings(s.discounts || defaultSettings().discounts),
-      paymentOptions: has('paymentOptions') ? normalizePaymentOptions(b.paymentOptions) : normalizePaymentOptions(s.paymentOptions || [])
+      paymentOptions: has('paymentOptions') ? normalizePaymentOptions(b.paymentOptions) : normalizePaymentOptions(s.paymentOptions || []),
+      paymentVerificationMode: has('paymentVerificationMode')
+        ? (String(b.paymentVerificationMode || '').toLowerCase() === 'automatic' ? 'automatic' : 'manual')
+        : (String(s.paymentVerificationMode || s.paymentVerification?.mode || 'manual').toLowerCase() === 'automatic' ? 'automatic' : 'manual')
     };
     if (botTokenIncoming) {
       try {

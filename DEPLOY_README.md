@@ -94,6 +94,15 @@ pm2 restart sprintsales
 3. The key is masked after saving (shows `configured`)
 4. *Client-level:* Dashboard → **My AI Keys** → DeepSeek → save
 
+### Verify.et Payment Verification Key
+Set the verifier key only in the server environment. Never paste it into frontend files or commit it to Git.
+
+```bash
+VERIFY_ET_API_KEY=VERIFY_BANK_ET_your_key_here
+```
+
+Automatic payment approval is available only for Pro clients that choose **Payment Settings → Automatic verification**. If the transaction reference, amount, or receiver checks are unclear, the system falls back to the existing manual owner review.
+
 ### 🚚 Delivery Settings
 1. Dashboard → **Clients → Demo Retail Shop → Delivery** card
 2. Configure:
