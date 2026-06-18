@@ -97,6 +97,27 @@ const accountRunners = new Map();
 const execFileAsync = promisify(execFile);
 const fetchWithTimeout = createFetchWithTimeout(aiRequestTimeoutMs);
 const billingPlanIsPro = client => String(client?.billing?.plan || client?.subscriptionPlan || client?.settings?.subscriptionPlan || 'basic').toLowerCase() === 'pro';
+const allowedDashboardHosts = new Set(
+  [
+    'automation.sprintsales.net',
+    'sprintsalestgautomation.netlify.app',
+    process.env.PUBLIC_APP_HOST,
+    process.env.PUBLIC_DASHBOARD_HOST,
+    process.env.NETLIFY_APP_HOST,
+    ...(process.env.ALLOWED_DASHBOARD_HOSTS || '').split(',')
+  ]
+    .map(item => String(item || '').trim().toLowerCase())
+    .filter(Boolean)
+);
+
+const requestHostAllowed = (sourceHost, requestHost) => {
+  const normalizedSource = String(sourceHost || '').toLowerCase();
+  const normalizedRequest = String(requestHost || '').toLowerCase();
+  if (!normalizedSource) return false;
+  if (normalizedSource === normalizedRequest) return true;
+  if (allowedDashboardHosts.has(normalizedSource)) return true;
+  return normalizedSource.endsWith('--sprintsalestgautomation.netlify.app');
+};
 
 const sameOriginGuard = (req, res, next) => {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
@@ -104,7 +125,7 @@ const sameOriginGuard = (req, res, next) => {
   if (!source) return next();
   try {
     const sourceUrl = new URL(source);
-    if (sourceUrl.host !== req.get('host')) {
+    if (!requestHostAllowed(sourceUrl.host, req.get('host'))) {
       return res.status(403).json({ error: 'Cross-site request blocked' });
     }
   } catch {
