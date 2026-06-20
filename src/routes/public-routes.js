@@ -256,10 +256,10 @@ export function createPublicRoutes(deps) {
     if (!key) return null;
     return data.platformSettings?.verifiedTelegramOwners?.[key] || null;
   };
-  const findUserByIdentifier = (data, identifier) => {
+  const findUsersByIdentifier = (data, identifier) => {
     const needle = String(identifier || '').trim().toLowerCase();
-    if (!needle) return null;
-    return (data.users || []).find(item =>
+    if (!needle) return [];
+    return (data.users || []).filter(item =>
       String(item.email || '').toLowerCase() === needle ||
       samePhoneNumber(item.phone, needle)
     );
@@ -608,11 +608,16 @@ export function createPublicRoutes(deps) {
     if (failure.lockedUntil && new Date(failure.lockedUntil).getTime() > Date.now()) {
       return res.status(429).json({ error: `Too many failed attempts. Try again after ${new Date(failure.lockedUntil).toLocaleTimeString()}.` });
     }
-    const user = data.users.find(item =>
+    const loginCandidates = data.users.filter(item =>
       item.email?.toLowerCase() === email ||
       samePhoneNumber(item.phone, identifier)
     );
-    if (!user || !passwordMatchesUser(String(req.body.password || ''), user)) {
+    const passwordMatches = loginCandidates.filter(item => passwordMatchesUser(String(req.body.password || ''), item));
+    const user = passwordMatches.length === 1 ? passwordMatches[0] : null;
+    if (passwordMatches.length > 1) {
+      return res.status(409).json({ error: 'More than one account matches this login. Please use the account email or contact SprintSales admin.' });
+    }
+    if (!user) {
       data.loginFailures ||= {};
       const attempts = Number(failure.attempts || 0) + 1;
       data.loginFailures[key] = {
@@ -774,38 +779,54 @@ export function createPublicRoutes(deps) {
     const newPassword = String(body.newPassword || '');
     if (!identifier || !newPassword) return res.status(400).json({ error: 'Email/phone and new password are required.' });
     if (newPassword.length < 5) return res.status(400).json({ error: 'New password must be at least 5 characters.' });
-    const targetUser = findUserByIdentifier(data, identifier);
-    if (!targetUser || targetUser.role === 'admin') {
+    const targetUsers = findUsersByIdentifier(data, identifier).filter(user => user.role !== 'admin');
+    if (!targetUsers.length) {
       return res.json({ ok: true, message: 'If this account can be verified, a reset code will be sent to the owner Telegram chat.' });
     }
-    const client = targetUser.clientId ? clientFor(data, targetUser.clientId) : null;
-    const chatId = ownerSecurityChatId(client);
-    if (!chatId) return res.status(400).json({ error: 'This account has no owner Telegram chat ID connected yet. Contact SprintSales admin for recovery.' });
-    const code = String(crypto.randomInt(100000, 1000000));
-    targetUser.pendingPasswordReset = {
-      codeHash: hashPassword(code),
-      newPasswordHash: hashPassword(newPassword),
-      requestedAt: now(),
-      expiresAt: new Date(Date.now() + passwordCodeTtlMs).toISOString(),
-      attempts: 0,
-      delivery: 'sprintsales-admin-bot',
-      targetChatId: chatId
-    };
-    try {
-      await sendPlatformAdminBotMessage(data, chatId, forgotPasswordCodeText(client, code));
-    } catch (error) {
-      delete targetUser.pendingPasswordReset;
-      return res.status(503).json({ error: adminBotDeliveryError(error) });
+    const sendResults = [];
+    const sendErrors = [];
+    for (const targetUser of targetUsers) {
+      const client = targetUser.clientId ? clientFor(data, targetUser.clientId) : null;
+      const chatId = ownerSecurityChatId(client);
+      if (!chatId) {
+        sendErrors.push('missing owner chat');
+        continue;
+      }
+      const code = String(crypto.randomInt(100000, 1000000));
+      targetUser.pendingPasswordReset = {
+        codeHash: hashPassword(code),
+        newPasswordHash: hashPassword(newPassword),
+        requestedAt: now(),
+        expiresAt: new Date(Date.now() + passwordCodeTtlMs).toISOString(),
+        attempts: 0,
+        delivery: 'sprintsales-admin-bot',
+        targetChatId: chatId
+      };
+      try {
+        await sendPlatformAdminBotMessage(data, chatId, forgotPasswordCodeText(client, code));
+        sendResults.push({ user: targetUser, client, chatId });
+      } catch (error) {
+        delete targetUser.pendingPasswordReset;
+        sendErrors.push(adminBotDeliveryError(error));
+      }
     }
-    addAuditLog(data, {
-      user: null,
-      action: 'password.reset.requested',
-      clientId: targetUser.clientId,
-      target: targetUser.email || targetUser.phone || targetUser.id,
-      details: `Forgot-password reset code sent to owner Telegram chat ${maskChatId(chatId)}.`
-    });
+    if (!sendResults.length) {
+      return res.status(sendErrors.length ? 503 : 400).json({
+        error: sendErrors[0] || 'This account has no owner Telegram chat ID connected yet. Contact SprintSales admin for recovery.'
+      });
+    }
+    for (const result of sendResults) {
+      addAuditLog(data, {
+        user: null,
+        action: 'password.reset.requested',
+        clientId: result.user.clientId,
+        target: result.user.email || result.user.phone || result.user.id,
+        details: `Forgot-password reset code sent to owner Telegram chat ${maskChatId(result.chatId)}.`
+      });
+    }
     await writeData(data);
-    res.json({ ok: true, requiresVerification: true, message: `A reset code was sent to the connected owner Telegram chat (${maskChatId(chatId)}).` });
+    const maskedChats = [...new Set(sendResults.map(result => maskChatId(result.chatId)))].join(', ');
+    res.json({ ok: true, requiresVerification: true, message: `A reset code was sent to the connected owner Telegram chat${sendResults.length > 1 ? 's' : ''} (${maskedChats}).` });
   });
 
   router.post('/api/forgot-password/confirm', async (req, res) => {
@@ -813,11 +834,40 @@ export function createPublicRoutes(deps) {
     const body = req.body || {};
     const identifier = String(body.identifier || '').trim();
     const code = String(body.code || '').trim();
-    const targetUser = findUserByIdentifier(data, identifier);
-    const pending = targetUser?.pendingPasswordReset || null;
-    if (!targetUser || !pending?.codeHash || !pending?.newPasswordHash) {
+    const targetUsers = findUsersByIdentifier(data, identifier).filter(user => user.role !== 'admin');
+    const pendingUsers = targetUsers.filter(user => user.pendingPasswordReset?.codeHash && user.pendingPasswordReset?.newPasswordHash);
+    if (!pendingUsers.length) {
       return res.status(400).json({ error: 'No password reset request is waiting for confirmation.' });
     }
+    const expiredUsers = pendingUsers.filter(user => new Date(user.pendingPasswordReset.expiresAt || 0).getTime() < Date.now());
+    if (expiredUsers.length === pendingUsers.length) {
+      for (const user of expiredUsers) delete user.pendingPasswordReset;
+      await writeData(data);
+      return res.status(400).json({ error: 'The reset code has expired. Request a new code.' });
+    }
+    const activeUsers = pendingUsers.filter(user => new Date(user.pendingPasswordReset.expiresAt || 0).getTime() >= Date.now());
+    const lockedUsers = activeUsers.filter(user => Number(user.pendingPasswordReset.attempts || 0) >= passwordCodeMaxAttempts);
+    if (lockedUsers.length === activeUsers.length) {
+      for (const user of lockedUsers) delete user.pendingPasswordReset;
+      await writeData(data);
+      return res.status(429).json({ error: 'Too many wrong code attempts. Request a new reset code.' });
+    }
+    const codeMatches = activeUsers.filter(user =>
+      Number(user.pendingPasswordReset.attempts || 0) < passwordCodeMaxAttempts &&
+      /^\d{6}$/.test(code) &&
+      verifyPassword(code, user.pendingPasswordReset.codeHash)
+    );
+    if (codeMatches.length !== 1) {
+      for (const user of activeUsers) {
+        if (Number(user.pendingPasswordReset.attempts || 0) < passwordCodeMaxAttempts) {
+          user.pendingPasswordReset.attempts = Number(user.pendingPasswordReset.attempts || 0) + 1;
+        }
+      }
+      await writeData(data);
+      return res.status(400).json({ error: 'Wrong reset code. Please check the Telegram message and try again.' });
+    }
+    const targetUser = codeMatches[0];
+    const pending = targetUser.pendingPasswordReset;
     if (new Date(pending.expiresAt || 0).getTime() < Date.now()) {
       delete targetUser.pendingPasswordReset;
       await writeData(data);
