@@ -80,7 +80,7 @@ const proofProviderBank = proof => providerBank([
 const candidateAccounts = (client, proof) => {
   const options = Array.isArray(client?.settings?.paymentOptions) ? client.settings.paymentOptions : [];
   const hintedBank = proofProviderBank(proof);
-  const candidates = options
+  const allCandidates = options
     .map(option => {
       const bank = methodBank(option.method);
       if (!bank) return null;
@@ -91,9 +91,17 @@ const candidateAccounts = (client, proof) => {
         accountName: String(option.accountName || '').trim()
       };
     })
-    .filter(Boolean)
-    .filter(option => !hintedBank || option.bank === hintedBank);
-  return { hintedBank, candidates };
+    .filter(Boolean);
+  const matchingCandidates = hintedBank
+    ? allCandidates.filter(option => option.bank === hintedBank)
+    : allCandidates;
+  if (matchingCandidates.length) {
+    return { hintedBank, candidates: matchingCandidates, hintMatched: Boolean(hintedBank), hintedProviderIgnored: false, savedAccountCount: allCandidates.length };
+  }
+  if (hintedBank && allCandidates.length === 1) {
+    return { hintedBank, candidates: allCandidates, hintMatched: false, hintedProviderIgnored: true, savedAccountCount: allCandidates.length };
+  }
+  return { hintedBank, candidates: [], hintMatched: false, hintedProviderIgnored: false, savedAccountCount: allCandidates.length };
 };
 
 const accountSuffix = (accountNumber, length) => normalizeDigits(accountNumber).slice(-length);
@@ -338,11 +346,11 @@ export function createPaymentVerificationService(deps = {}) {
       return { action: 'duplicate', reason: proof.autoVerification.reason, duplicate };
     }
 
-    const { hintedBank, candidates } = candidateAccounts(client, proof);
+    const { hintedBank, candidates, hintedProviderIgnored, savedAccountCount } = candidateAccounts(client, proof);
     if (!candidates.length) {
       proof.autoVerification.status = 'manual_review';
       proof.autoVerification.reason = hintedBank
-        ? `No saved ${hintedBank} receiving account is available for automatic verification.`
+        ? `The payment text looked like ${hintedBank}, but none of the ${savedAccountCount || 0} saved receiving accounts match that provider.`
         : 'No supported saved payment account is available for automatic verification.';
       proof.autoVerification.reference = reference;
       return { action: 'manual_review', reason: proof.autoVerification.reason };
@@ -352,6 +360,10 @@ export function createPaymentVerificationService(deps = {}) {
       proof.autoVerification.reason = 'Payment method was not clear and multiple saved accounts exist. Manual review is safer.';
       proof.autoVerification.reference = reference;
       return { action: 'manual_review', reason: proof.autoVerification.reason };
+    }
+    if (hintedProviderIgnored) {
+      proof.autoVerification.providerHintIgnored = hintedBank;
+      proof.autoVerification.providerHintIgnoredReason = 'The SMS/provider hint did not match the saved account, so the only saved receiving account was used.';
     }
 
     data.paymentVerifications ||= [];

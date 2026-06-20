@@ -174,11 +174,52 @@ async function testAmbiguousMethodAvoidsExtraCalls() {
   assert.equal(calls, 0);
 }
 
+async function testNoisyProviderHintUsesOnlySavedAccount() {
+  const calls = [];
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body) });
+      return response(200, {
+        success: true,
+        data: [{
+          bank: 'cbe',
+          status: 'success',
+          verified: true,
+          amount: 1500,
+          receiverName: 'Acme Trading',
+          receiverAccount: '1****7441',
+          referenceNumber: 'FT1234567890',
+          confirmationHistory: { isFirstConfirmation: true, confirmedBefore: false },
+          settlementAccountMatch: { matched: true }
+        }],
+        verification: { processingStatus: 'completed', status: 'success', verified: true },
+        requestId: 'verify_noisy_hint'
+      });
+    }
+  });
+  const result = await service.verifyPaymentProof({
+    data: {},
+    client: proClient,
+    order,
+    proof: {
+      id: 'proof_noisy_hint',
+      manualSmsText: 'Telebirr message copied by the customer. CBE Reference FT1234567890 amount 1500.',
+      extracted: { transactionId: 'FT1234567890', provider: 'telebirr' }
+    }
+  });
+  assert.equal(result.action, 'verified');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.bank, 'cbe');
+}
+
 await testSuccessfulVerification();
 await testDuplicateBlockedBeforeApiCall();
 await testAmountMismatchFallsBackToManualReview();
 await testQueuedVerificationExplainsProcessing();
 await testBasicPlanCannotAutoVerify();
 await testAmbiguousMethodAvoidsExtraCalls();
+await testNoisyProviderHintUsesOnlySavedAccount();
 
 console.log('payment verification service tests passed');
