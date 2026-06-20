@@ -36,6 +36,21 @@ const namesLikelyMatch = (expected, actual) => {
   return expectedTokens.some(token => actualTokens.includes(token));
 };
 
+const pick = (...values) => {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+};
+
+const nested = (obj, paths) => {
+  for (const itemPath of paths) {
+    const value = itemPath.split('.').reduce((current, key) => current && current[key], obj);
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+  }
+  return '';
+};
+
 const providerBank = value => {
   const text = String(value || '').toLowerCase();
   if (/tele\s*birr|telebirr/.test(text)) return 'telebirr';
@@ -146,21 +161,83 @@ const safePayload = payload => ({
   phoneLast4: normalizeDigits(payload.phoneNumber).slice(-4)
 });
 
-const responseRows = body => {
-  if (Array.isArray(body?.data)) return body.data;
-  if (body?.data && typeof body.data === 'object') return [body.data];
-  return [];
+const headersToObject = headers => {
+  const out = {};
+  if (!headers?.entries) return out;
+  for (const [key, value] of headers.entries()) out[String(key).toLowerCase()] = value;
+  return out;
 };
 
-const summarizeVerification = body => {
-  const rows = responseRows(body);
-  const row = rows.find(item => item?.verified === true || item?.status === 'success') || rows[0] || {};
-  const verification = body?.verification || {};
+const extractVerification = body => {
+  if (!body || typeof body !== 'object') return {};
+  if (Array.isArray(body.data) && body.data[0] && typeof body.data[0] === 'object') return body.data[0];
+  if (body.data && typeof body.data === 'object') return body.data;
+  if (body.verification && typeof body.verification === 'object') return body.verification;
+  return body;
+};
+
+const summarizeVerification = (body, headers = {}) => {
+  const verification = extractVerification(body);
+  const topVerification = body?.verification && typeof body.verification === 'object' ? body.verification : {};
+  const result = verification.result && typeof verification.result === 'object' ? verification.result : {};
+  const bankSpecific = result.bankSpecific && typeof result.bankSpecific === 'object' ? result.bankSpecific : {};
+  const processingStatus = String(pick(verification.processingStatus, verification.processing_status, topVerification.processingStatus, topVerification.processing_status, body?.processingStatus, body?.status) || '').toLowerCase();
+  const status = String(pick(verification.status, result.status, topVerification.status, body?.status) || '').toLowerCase();
+  const amount = moneyNumber(pick(
+    verification.amount,
+    verification.settledAmount,
+    verification.totalPaidAmount,
+    result.amount,
+    result.settledAmount,
+    result.totalPaidAmount,
+    result.paidAmount,
+    bankSpecific.settledAmountValue,
+    bankSpecific.amountValue,
+    bankSpecific.settledAmount,
+    bankSpecific.amountRaw,
+    bankSpecific.totalPaidAmountValue,
+    bankSpecific.totalPaidAmount
+  ));
+  const receiverAccount = String(pick(
+    verification.receiverAccount,
+    verification.receiverNumber,
+    verification.receiverPhone,
+    verification.creditedPartyNumber,
+    verification.creditedPartyAccountNo,
+    result.receiverAccount,
+    result.receiverNumber,
+    result.receiverPhone,
+    result.creditedPartyNumber,
+    result.creditedPartyAccountNo,
+    bankSpecific.receiverAccount,
+    bankSpecific.creditedPartyAccountNo,
+    bankSpecific.receiverPhone,
+    bankSpecific.receiverNumber
+  ) || '');
+  const receiverName = String(
+    nested(verification, ['receiverName', 'creditedParty', 'receiver.name']) ||
+    nested(result, ['receiverName', 'creditedParty', 'receiver.name']) ||
+    pick(bankSpecific.receiverName, bankSpecific.creditedPartyName) ||
+    ''
+  );
+  const confirmationHistory = verification.confirmationHistory || result.confirmationHistory || bankSpecific.confirmationHistory || null;
+  const row = {
+    ...verification,
+    ...result,
+    amount,
+    receiverName,
+    receiverAccount,
+    confirmationHistory,
+    settlementAccountMatch: verification.settlementAccountMatch || result.settlementAccountMatch || bankSpecific.settlementAccountMatch || body?.data?.settlementAccountMatch || null
+  };
   return {
-    requestId: body?.requestId || verification.requestId || row.requestId || '',
-    processingStatus: verification.processingStatus || row.processingStatus || '',
-    status: verification.status || row.status || '',
-    verified: verification.verified === true || row.verified === true || row.status === 'success',
+    requestId: body?.requestId || verification.requestId || topVerification.requestId || verification.id || body?.id || '',
+    requestHeaderId: headers['x-request-id'] || '',
+    processingStatus,
+    status,
+    terminal: ['completed', 'failed'].includes(processingStatus) || ['success', 'not_found', 'failed'].includes(status),
+    retryAfterMs: Number(headers['retry-after'] || 0) ? Number(headers['retry-after']) * 1000 : 0,
+    verified: verification.verified === true || result.verified === true || status === 'success',
     row
   };
 };
@@ -177,6 +254,19 @@ const processingState = summaryOrBody => {
 const isProcessingState = value => ['queued', 'pending', 'processing', 'in_progress'].includes(String(value || '').toLowerCase());
 
 const requestIdFromBody = body => body?.requestId || body?.verification?.requestId || body?.data?.requestId || '';
+
+const readJsonResponse = async response => {
+  if (typeof response.text === 'function') {
+    const text = await response.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return { raw: text };
+    }
+  }
+  if (typeof response.json === 'function') return response.json().catch(() => ({}));
+  return {};
+};
 
 const alreadyUsedReference = (data, clientId, reference) => {
   const ref = normalizeReference(reference);
@@ -232,33 +322,37 @@ export function createPaymentVerificationService(deps = {}) {
 
   const fetchJson = async (url, options) => {
     const response = await fetchWithTimeout(url, options);
-    const body = await response.json().catch(() => ({}));
+    const body = await readJsonResponse(response);
+    const headers = headersToObject(response.headers);
     if (!response.ok && response.status !== 202) {
-      const message = body?.message || body?.error || `Verify.et request failed (${response.status})`;
+      const message = body?.error?.message || body?.message || body?.error || `Verify.et request failed (${response.status})`;
       const error = new Error(message);
       error.status = response.status;
       error.body = body;
+      error.headers = headers;
       throw error;
     }
-    return { status: response.status, body };
+    return { status: response.status, body, headers };
   };
 
   const pollVerification = async requestId => {
     if (!requestId) return null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const { body } = await fetchJson(`${baseUrl.replace(/\/$/, '')}/api/verify/${encodeURIComponent(requestId)}`, {
+      const delayMs = attempt === 0 ? 1200 : 1500;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      const { body, headers } = await fetchJson(`${baseUrl.replace(/\/$/, '')}/api/verify/${encodeURIComponent(requestId)}`, {
         headers: { 'x-api-key': apiKey }
       });
-      const summary = summarizeVerification(body);
+      const summary = summarizeVerification(body, headers);
       const status = processingState(summary);
-      if (status === 'completed' || status === 'failed' || !isProcessingState(status)) return body;
+      if (summary.terminal || status === 'completed' || status === 'failed' || !isProcessingState(status)) return body;
+      if (summary.retryAfterMs) await new Promise(resolve => setTimeout(resolve, Math.min(Math.max(summary.retryAfterMs, 500), 5000)));
     }
     return null;
   };
 
   const submitVerification = async ({ payload, idempotencyKey }) => {
-    const { status, body } = await fetchJson(`${baseUrl.replace(/\/$/, '')}/api/verify?waitMs=5000`, {
+    const { status, body, headers } = await fetchJson(`${baseUrl.replace(/\/$/, '')}/api/verify?waitMs=7000`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -267,8 +361,8 @@ export function createPaymentVerificationService(deps = {}) {
       },
       body: JSON.stringify(payload)
     });
-    const summary = summarizeVerification(body);
-    if (status === 202 || isProcessingState(processingState(summary))) {
+    const summary = summarizeVerification(body, headers);
+    if (status === 202 || !summary.terminal || isProcessingState(processingState(summary))) {
       const requestId = requestIdFromBody(body) || summary.requestId || '';
       const polled = await pollVerification(requestId);
       return polled || body;

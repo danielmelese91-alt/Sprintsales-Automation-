@@ -259,6 +259,43 @@ async function testNoisyProviderHintUsesOnlySavedAccount() {
   assert.equal(calls[0].body.bank, 'cbe');
 }
 
+async function testNestedVerifyEtShapeVerifies() {
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => response(200, {
+      data: {
+        requestId: 'verify_nested',
+        bank: 'cbe',
+        processingStatus: 'completed',
+        status: 'success',
+        verified: true,
+        result: {
+          bank: 'cbe',
+          status: 'success',
+          verified: true,
+          amount: 1500,
+          senderName: 'Test Buyer',
+          receiverName: 'Acme Trading',
+          referenceNumber: 'FT1234567890',
+          bankSpecific: {
+            receiverName: 'Acme Trading',
+            receiverAccount: '1****7441',
+            settledAmountValue: 1500,
+            reference: 'FT1234567890'
+          }
+        }
+      }
+    })
+  });
+  const data = {};
+  const result = await service.verifyPaymentProof({ data, client: proClient, order, proof: structuredClone(proof) });
+  assert.equal(result.action, 'verified');
+  assert.equal(result.amount, 1500);
+  assert.equal(result.verifyRequestId, 'verify_nested');
+  assert.equal(data.paymentVerificationReferences.length, 1);
+}
+
 await testSuccessfulVerification();
 await testDuplicateBlockedBeforeApiCall();
 await testAmountMismatchFallsBackToManualReview();
@@ -267,5 +304,6 @@ await testQueuedVerificationPollsToSuccess();
 await testBasicPlanCannotAutoVerify();
 await testAmbiguousMethodAvoidsExtraCalls();
 await testNoisyProviderHintUsesOnlySavedAccount();
+await testNestedVerifyEtShapeVerifies();
 
 console.log('payment verification service tests passed');
