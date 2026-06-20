@@ -522,13 +522,29 @@ const paymentInstructionsReply = (client, order) => {
 const parsePaymentSms = text => {
   const value = String(text || '');
   const amountMatch = value.replace(/,/g, '').match(/(?:ETB|Birr|Br|USD|\$)?\s*(\d+(?:\.\d{1,2})?)\s*(?:ETB|Birr|Br|USD)?/i);
-  const txMatch = value.match(/\b(?:txn|trx|transaction|ref|reference|id|receipt)\s*(?:no\.?|number|id)?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i)
-    || value.match(/\b([A-Z0-9]{8,})\b/i);
+  const normalizeRef = raw => String(raw || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 80);
+  const isReference = raw => {
+    const ref = normalizeRef(raw);
+    if (ref.length < 6) return false;
+    if (/^(NUMBER|REFERENCE|REF|TRANSACTION|TRANSACTIONID|RECEIPT|RECEIPTNO|AMOUNT|ACCOUNT|SUCCESS|SUCCESSFUL|TRANSFER|PAYMENT|CONFIRMED|COMPLETED)$/i.test(ref)) return false;
+    return /[A-Z]/.test(ref) && /\d/.test(ref);
+  };
+  const firstReference = (...items) => {
+    for (const item of items) {
+      if (isReference(item)) return normalizeRef(item);
+    }
+    return '';
+  };
+  const explicitWithSeparator = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt|id)\s*(?:no\.?|number|id)?\s*[:#-]\s*([A-Z0-9-]{6,})\b/i);
+  const explicitWithLabel = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt)\s+(?:no\.?|number|id)\s+([A-Z0-9-]{6,})\b/i);
+  const explicitDirect = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt)\s+([A-Z0-9-]{6,})\b/i);
+  const cbeLike = value.match(/\b(FT[A-Z0-9]{8,})\b/i);
+  const genericTokens = [...value.matchAll(/\b([A-Z0-9-]{8,})\b/gi)].map(match => match[1]);
   const providerMatch = value.match(/\b(telebirr|cbe|commercial bank|dashen|awash|abyssinia|boa|coop|mpesa|bank)\b/i);
   const dateMatch = value.match(/\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b/);
   return {
     amount: amountMatch?.[1] || '',
-    transactionId: txMatch?.[1] || '',
+    transactionId: firstReference(explicitWithSeparator?.[1], explicitWithLabel?.[1], explicitDirect?.[1], cbeLike?.[1], ...genericTokens),
     provider: providerMatch?.[1] || '',
     paymentDate: dateMatch?.[0] || ''
   };

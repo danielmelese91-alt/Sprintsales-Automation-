@@ -23,6 +23,22 @@ const normalizeReference = value => String(value || '')
   .replace(/[^A-Z0-9-]/g, '')
   .slice(0, 80);
 
+const isLikelyPaymentReference = value => {
+  const ref = normalizeReference(value);
+  if (ref.length < 6) return false;
+  if (/^(NUMBER|REFERENCE|REF|TRANSACTION|TRANSACTIONID|RECEIPT|RECEIPTNO|AMOUNT|ACCOUNT|SUCCESS|SUCCESSFUL|TRANSFER|PAYMENT|CONFIRMED|COMPLETED)$/i.test(ref)) return false;
+  if (!/[A-Z]/.test(ref) || !/\d/.test(ref)) return false;
+  return true;
+};
+
+const firstReferenceCandidate = (...values) => {
+  for (const value of values) {
+    const ref = normalizeReference(value);
+    if (isLikelyPaymentReference(ref)) return ref;
+  }
+  return '';
+};
+
 const normalizeName = value => String(value || '')
   .toLowerCase()
   .replace(/[^a-z0-9\s]/g, ' ')
@@ -69,13 +85,18 @@ const methodBank = method => providerBank(method);
 
 const referenceFromText = text => {
   const value = String(text || '');
-  const explicit = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt|id)\s*(?:no\.?|number|id)?\s*[:#-]?\s*([A-Z0-9-]{5,})\b/i);
-  if (explicit?.[1]) return normalizeReference(explicit[1]);
-  const telebirrLike = value.match(/\b([A-Z]{2,}[A-Z0-9]{6,})\b/i);
-  if (telebirrLike?.[1]) return normalizeReference(telebirrLike[1]);
+  const explicitWithSeparator = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt|id)\s*(?:no\.?|number|id)?\s*[:#-]\s*([A-Z0-9-]{6,})\b/i);
+  const explicitWithLabel = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt)\s+(?:no\.?|number|id)\s+([A-Z0-9-]{6,})\b/i);
+  const explicitDirect = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt)\s+([A-Z0-9-]{6,})\b/i);
   const cbeLike = value.match(/\b(FT[A-Z0-9]{8,})\b/i);
-  if (cbeLike?.[1]) return normalizeReference(cbeLike[1]);
-  return '';
+  const genericTokens = [...value.matchAll(/\b([A-Z0-9-]{8,})\b/gi)].map(match => match[1]);
+  return firstReferenceCandidate(
+    explicitWithSeparator?.[1],
+    explicitWithLabel?.[1],
+    explicitDirect?.[1],
+    cbeLike?.[1],
+    ...genericTokens
+  );
 };
 
 const proofReference = proof => normalizeReference(

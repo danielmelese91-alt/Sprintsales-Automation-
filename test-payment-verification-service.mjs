@@ -296,6 +296,67 @@ async function testNestedVerifyEtShapeVerifies() {
   assert.equal(data.paymentVerificationReferences.length, 1);
 }
 
+async function testReferenceNumberLabelDoesNotBecomeReference() {
+  const calls = [];
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body) });
+      return response(200, {
+        data: [{
+          bank: 'cbe',
+          status: 'success',
+          verified: true,
+          amount: 1500,
+          receiverName: 'Acme Trading',
+          receiverAccount: '1****7441',
+          confirmationHistory: { isFirstConfirmation: true, confirmedBefore: false },
+          settlementAccountMatch: { matched: true }
+        }],
+        verification: { processingStatus: 'completed', status: 'success', verified: true },
+        requestId: 'verify_ref_label'
+      });
+    }
+  });
+  const data = {};
+  const result = await service.verifyPaymentProof({
+    data,
+    client: proClient,
+    order,
+    proof: {
+      id: 'proof_ref_label',
+      manualSmsText: 'Your payment is successful. Reference number DFI42G1RY4. Amount ETB 1500. CBE.'
+    }
+  });
+  assert.equal(result.action, 'verified');
+  assert.equal(calls[0].body.referenceNumber, 'DFI42G1RY4');
+}
+
+async function testMissingReferenceNumberDoesNotSubmitGenericNumber() {
+  let calls = 0;
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => {
+      calls += 1;
+      return response(200, {});
+    }
+  });
+  const result = await service.verifyPaymentProof({
+    data: {},
+    client: proClient,
+    order,
+    proof: {
+      id: 'proof_no_ref',
+      manualSmsText: 'Your payment is successful. Reference number. Amount ETB 1500. CBE.'
+    }
+  });
+  assert.equal(result.action, 'manual_review');
+  assert.match(result.reason, /No transaction\/reference number/);
+  assert.equal(calls, 0);
+}
+
 await testSuccessfulVerification();
 await testDuplicateBlockedBeforeApiCall();
 await testAmountMismatchFallsBackToManualReview();
@@ -305,5 +366,7 @@ await testBasicPlanCannotAutoVerify();
 await testAmbiguousMethodAvoidsExtraCalls();
 await testNoisyProviderHintUsesOnlySavedAccount();
 await testNestedVerifyEtShapeVerifies();
+await testReferenceNumberLabelDoesNotBecomeReference();
+await testMissingReferenceNumberDoesNotSubmitGenericNumber();
 
 console.log('payment verification service tests passed');
