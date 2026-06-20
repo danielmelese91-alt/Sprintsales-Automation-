@@ -874,6 +874,18 @@ const recordPaymentProof = async ({ data, client, conversation, ctx }) => {
       await applyDuplicatePaymentProof({ data, client, conversation, order: currentOrder, proof, ctx, result: autoResult });
       return proof;
     }
+    if (autoResult.action === 'pending') {
+      const updatedAt = now();
+      proof.status = 'auto_verification_pending';
+      proof.verificationNote = autoResult.reason || 'Verify.et is still processing this reference.';
+      proof.updatedAt = updatedAt;
+      currentOrder.paymentStatus = 'pending_verification';
+      currentOrder.awaitingPaymentProof = false;
+      currentOrder.updatedAt = updatedAt;
+      conversation.stage = 'awaiting_payment_proof';
+      conversation.stageState = { stage: 'awaiting_payment_proof', orderId: currentOrder.id };
+      return proof;
+    }
     const updatedAt = now();
     proof.status = 'auto_verification_failed';
     proof.verificationNote = autoResult.reason || proof.verificationNote || 'Automatic payment verification could not complete.';

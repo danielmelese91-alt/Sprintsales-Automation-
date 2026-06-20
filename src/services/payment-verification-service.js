@@ -165,6 +165,19 @@ const summarizeVerification = body => {
   };
 };
 
+const processingState = summaryOrBody => {
+  if (!summaryOrBody || typeof summaryOrBody !== 'object') return '';
+  if ('processingStatus' in summaryOrBody || ('status' in summaryOrBody && ('verified' in summaryOrBody || 'row' in summaryOrBody))) {
+    return String(summaryOrBody.processingStatus || summaryOrBody.status || '').toLowerCase();
+  }
+  const summary = summarizeVerification(summaryOrBody);
+  return String(summary.processingStatus || summary.status || '').toLowerCase();
+};
+
+const isProcessingState = value => ['queued', 'pending', 'processing', 'in_progress'].includes(String(value || '').toLowerCase());
+
+const requestIdFromBody = body => body?.requestId || body?.verification?.requestId || body?.data?.requestId || '';
+
 const alreadyUsedReference = (data, clientId, reference) => {
   const ref = normalizeReference(reference);
   if (!ref) return null;
@@ -237,8 +250,9 @@ export function createPaymentVerificationService(deps = {}) {
       const { body } = await fetchJson(`${baseUrl.replace(/\/$/, '')}/api/verify/${encodeURIComponent(requestId)}`, {
         headers: { 'x-api-key': apiKey }
       });
-      const status = body?.data?.processingStatus || body?.verification?.processingStatus;
-      if (status === 'completed' || status === 'failed') return body;
+      const summary = summarizeVerification(body);
+      const status = processingState(summary);
+      if (status === 'completed' || status === 'failed' || !isProcessingState(status)) return body;
     }
     return null;
   };
@@ -253,8 +267,9 @@ export function createPaymentVerificationService(deps = {}) {
       },
       body: JSON.stringify(payload)
     });
-    if (status === 202) {
-      const requestId = body?.requestId || body?.verification?.requestId || '';
+    const summary = summarizeVerification(body);
+    if (status === 202 || isProcessingState(processingState(summary))) {
+      const requestId = requestIdFromBody(body) || summary.requestId || '';
       const polled = await pollVerification(requestId);
       return polled || body;
     }
@@ -273,8 +288,8 @@ export function createPaymentVerificationService(deps = {}) {
     if (confirmedBefore) {
       return { action: 'duplicate', reason: 'Verify.et says this reference was confirmed before.', summary, amount };
     }
-    if (['queued', 'pending', 'processing', 'in_progress'].includes(String(summary.processingStatus || summary.status || '').toLowerCase())) {
-      return { action: 'manual_review', reason: 'Verify.et is still processing this reference. Ask the customer to try again in a few minutes or send the full SMS.', summary, amount };
+    if (isProcessingState(processingState(summary))) {
+      return { action: 'pending', reason: 'Verify.et is still processing this reference.', summary, amount };
     }
     if (!summary.verified) {
       return { action: 'manual_review', reason: 'Verify.et did not return a successful verification.', summary, amount };
@@ -444,6 +459,19 @@ export function createPaymentVerificationService(deps = {}) {
             reason: decision.reason
           };
           return { action: 'duplicate', reason: decision.reason, reference, bank: candidate.bank, attempt };
+        }
+        if (decision.action === 'pending') {
+          proof.autoVerification = {
+            ...proof.autoVerification,
+            status: 'pending',
+            reference,
+            bank: candidate.bank,
+            method: candidate.method,
+            verifyRequestId: attempt.verifyRequestId,
+            reason: decision.reason,
+            updatedAt: now()
+          };
+          return { action: 'pending', reason: decision.reason, reference, bank: candidate.bank, verifyRequestId: attempt.verifyRequestId, attempt };
         }
       } catch (error) {
         attempt.status = 'error';

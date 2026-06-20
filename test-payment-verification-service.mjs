@@ -111,19 +111,64 @@ async function testAmountMismatchFallsBackToManualReview() {
 }
 
 async function testQueuedVerificationExplainsProcessing() {
+  let calls = 0;
   const service = createPaymentVerificationService({
     apiKey: 'test-key',
     isProClient: () => true,
-    fetchWithTimeout: async () => response(200, {
-      success: true,
-      data: [],
-      verification: { processingStatus: 'queued', status: 'pending', verified: false },
-      requestId: 'verify_queued'
-    })
+    fetchWithTimeout: async () => {
+      calls += 1;
+      return response(200, {
+        success: true,
+        data: [],
+        verification: { processingStatus: 'queued', status: 'pending', verified: false, requestId: 'verify_queued' },
+        requestId: 'verify_queued'
+      });
+    }
   });
   const result = await service.verifyPaymentProof({ data: {}, client: proClient, order, proof: structuredClone(proof) });
-  assert.equal(result.action, 'manual_review');
+  assert.equal(result.action, 'pending');
   assert.match(result.reason, /still processing/);
+  assert.equal(calls, 6);
+}
+
+async function testQueuedVerificationPollsToSuccess() {
+  let calls = 0;
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return response(200, {
+          success: true,
+          data: [],
+          verification: { processingStatus: 'queued', status: 'pending', verified: false, requestId: 'verify_later' },
+          requestId: 'verify_later'
+        });
+      }
+      return response(200, {
+        success: true,
+        data: [{
+          bank: 'cbe',
+          status: 'success',
+          verified: true,
+          amount: 1500,
+          receiverName: 'Acme Trading',
+          receiverAccount: '1****7441',
+          referenceNumber: 'FT1234567890',
+          confirmationHistory: { isFirstConfirmation: true, confirmedBefore: false },
+          settlementAccountMatch: { matched: true }
+        }],
+        verification: { processingStatus: 'completed', status: 'success', verified: true, requestId: 'verify_later' },
+        requestId: 'verify_later'
+      });
+    }
+  });
+  const data = {};
+  const result = await service.verifyPaymentProof({ data, client: proClient, order, proof: structuredClone(proof) });
+  assert.equal(result.action, 'verified');
+  assert.equal(calls, 2);
+  assert.equal(data.paymentVerificationReferences.length, 1);
 }
 
 async function testBasicPlanCannotAutoVerify() {
@@ -218,6 +263,7 @@ await testSuccessfulVerification();
 await testDuplicateBlockedBeforeApiCall();
 await testAmountMismatchFallsBackToManualReview();
 await testQueuedVerificationExplainsProcessing();
+await testQueuedVerificationPollsToSuccess();
 await testBasicPlanCannotAutoVerify();
 await testAmbiguousMethodAvoidsExtraCalls();
 await testNoisyProviderHintUsesOnlySavedAccount();

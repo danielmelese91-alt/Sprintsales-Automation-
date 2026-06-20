@@ -23,10 +23,16 @@ initProductflow({
   paymentVerificationService: {
     modeForClient: client => String(client?.settings?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic' ? 'automatic' : 'manual',
     canUseAutomatic: client => String(client?.settings?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic',
-    verifyPaymentProof: async () => ({
-      action: 'manual_review',
-      reason: 'Amount mismatch. Expected 100 ETB but Verify.et returned 10 ETB.'
-    })
+    verifyPaymentProof: async ({ proof }) => String(proof?.manualSmsText || '').includes('PENDINGREF')
+      ? {
+          action: 'pending',
+          reason: 'Verify.et is still processing this reference.',
+          reference: 'PENDINGREF'
+        }
+      : {
+          action: 'manual_review',
+          reason: 'Amount mismatch. Expected 100 ETB but Verify.et returned 10 ETB.'
+        }
   },
   findCheckoutMatch: ({ client, mainProduct }) => {
     if (mainProduct?.id !== 'p7') return null;
@@ -634,6 +640,32 @@ const sendTextForConversation = async (conv, text) => {
   assert.equal(autoData.orders[0].paymentStatus, 'awaiting_screenshot');
   assert.equal(autoCtx.telegramMessages.length, 0);
   assert.ok(!autoProofResult.buttons.some(row => row.some(btn => /Confirm Payment/i.test(btn.text || ''))));
+
+  const pendingAutoData = {
+    orders: [{
+      ...autoOrder,
+      id: 'order_auto_pending',
+      paymentProofId: '',
+      paymentStatus: 'awaiting_screenshot'
+    }],
+    products: [],
+    paymentProofs: [],
+    paymentVerifications: [],
+    paymentVerificationReferences: [],
+    notifications: []
+  };
+  const pendingConversation = {
+    ...autoConversation,
+    id: 'conv-auto-pending',
+    lastOrderId: 'order_auto_pending',
+    stageState: { stage: 'awaiting_payment_proof', orderId: 'order_auto_pending' }
+  };
+  const pendingResult = await handleProductflowText(pendingAutoData, autoClient, pendingConversation, autoCtx, 'Reference PENDINGREF amount 100');
+  assert.match(pendingResult.reply, /still being checked/i);
+  assert.doesNotMatch(pendingResult.reply, /could not verify/i);
+  assert.equal(pendingAutoData.paymentProofs[0].status, 'auto_verification_pending');
+  assert.equal(pendingAutoData.orders[0].paymentStatus, 'pending_verification');
+  assert.ok(!pendingResult.buttons.some(row => row.some(btn => /Confirm Payment/i.test(btn.text || ''))));
 
   const paymentConversation = {
     id: 'conv-payment',

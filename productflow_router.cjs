@@ -3349,8 +3349,28 @@ async function tryAutomaticPaymentVerification(data, client, conversation, order
     await notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, 'duplicate');
     return result;
   }
+  if (result.action === 'pending') {
+    const updatedAt = new Date().toISOString();
+    proof.status = 'auto_verification_pending';
+    proof.verificationNote = result.reason || 'Verify.et is still processing this reference.';
+    proof.updatedAt = updatedAt;
+    order.paymentStatus = 'pending_verification';
+    order.awaitingPaymentProof = false;
+    order.paymentProofId = proof.id;
+    order.updatedAt = updatedAt;
+    conversation.stage = 'awaiting_payment_proof';
+    conversation.stageState = { stage: 'awaiting_payment_proof', orderId: order.id };
+    return result;
+  }
   return result;
 }
+
+const automaticPaymentPendingText = (client, result = {}) => [
+  'Your payment reference was received and is still being checked.',
+  'Please do not send the same reference again yet. I will keep this order in payment review.',
+  '',
+  'If it still does not update after a little while, tap Submit Payment Proof and paste the full SMS again.'
+].join('\n');
 
 const automaticPaymentRetryText = (client, result = {}) => {
   const reason = String(result?.reason || '').trim();
@@ -3482,6 +3502,18 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
         handled: true,
         reply: 'This payment reference was already used before. Please send the correct payment proof or contact support.',
         buttons: [
+          [{ text: 'Submit Payment Proof', callback_data: 'productflow:payment_proof' }],
+          [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
+        ],
+        stage: 'awaiting_payment_proof'
+      };
+    }
+    if (autoResult.action === 'pending') {
+      return {
+        handled: true,
+        reply: automaticPaymentPendingText(client, autoResult),
+        buttons: [
+          [{ text: 'Track Delivery', callback_data: 'productflow:track_order' }],
           [{ text: 'Submit Payment Proof', callback_data: 'productflow:payment_proof' }],
           [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
         ],
