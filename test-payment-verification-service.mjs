@@ -110,6 +110,22 @@ async function testAmountMismatchFallsBackToManualReview() {
   assert.match(result.reason, /Amount mismatch/);
 }
 
+async function testQueuedVerificationExplainsProcessing() {
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => response(200, {
+      success: true,
+      data: [],
+      verification: { processingStatus: 'queued', status: 'pending', verified: false },
+      requestId: 'verify_queued'
+    })
+  });
+  const result = await service.verifyPaymentProof({ data: {}, client: proClient, order, proof: structuredClone(proof) });
+  assert.equal(result.action, 'manual_review');
+  assert.match(result.reason, /still processing/);
+}
+
 async function testBasicPlanCannotAutoVerify() {
   const service = createPaymentVerificationService({
     apiKey: 'test-key',
@@ -161,6 +177,7 @@ async function testAmbiguousMethodAvoidsExtraCalls() {
 await testSuccessfulVerification();
 await testDuplicateBlockedBeforeApiCall();
 await testAmountMismatchFallsBackToManualReview();
+await testQueuedVerificationExplainsProcessing();
 await testBasicPlanCannotAutoVerify();
 await testAmbiguousMethodAvoidsExtraCalls();
 

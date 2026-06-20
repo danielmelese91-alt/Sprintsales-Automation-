@@ -114,6 +114,14 @@ export function createTelegramBotRuntime(deps) {
       }
     }
   };
+
+  const automaticPaymentSelected = client => {
+    if (paymentVerificationService?.modeForClient) {
+      return paymentVerificationService.modeForClient(client) === 'automatic';
+    }
+    const settings = client?.settings || {};
+    return String(settings.paymentVerificationMode || settings.paymentVerification?.mode || client?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic';
+  };
   
   const sendTelegramReply = async ({ ctx, client, conversation, product, products, reply }) => {
     try {
@@ -932,7 +940,7 @@ export function createTelegramBotRuntime(deps) {
       const treatAsPaymentProof = conversation.stage === 'awaiting_payment_proof' ||
         likelyPaymentContext ||
         shouldTreatImageAsPaymentProof({ caption, analysis: { description: '', isPaymentProof: false, confidence: 0, type: 'unclear' }, productMatch: null, conversation, activeOrder });
-      if (treatAsPaymentProof && paymentVerificationService?.canUseAutomatic?.(currentClient)) {
+      if (treatAsPaymentProof && automaticPaymentSelected(currentClient)) {
         data.messages.push({
           id: uid('msg'),
           clientId: currentClient.id,
@@ -964,6 +972,13 @@ export function createTelegramBotRuntime(deps) {
           return;
         }
         if (proof.status === 'rejected' && /duplicate payment/i.test(String(proof.verificationNote || ''))) {
+          return;
+        }
+        if (proof.status === 'auto_verification_failed') {
+          await ctx.reply([
+            'I could not verify that payment automatically yet.',
+            'Please paste the full bank/Telebirr SMS or exact transaction/reference number as text, or contact support if the payment details look wrong.'
+          ].join('\n')).catch(console.error);
           return;
         }
         await ctx.reply(`${t(currentClient, 'PAYMENT_PROOF_RECEIVED')}\n\n${t(currentClient, 'PAYMENT_WAIT_REVIEW')}`).catch(console.error);

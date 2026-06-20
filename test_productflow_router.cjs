@@ -20,6 +20,14 @@ initProductflow({
     visionCalls += 1;
     return 'Amount: 690\nSender: Test Buyer\nReference: ABC';
   },
+  paymentVerificationService: {
+    modeForClient: client => String(client?.settings?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic' ? 'automatic' : 'manual',
+    canUseAutomatic: client => String(client?.settings?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic',
+    verifyPaymentProof: async () => ({
+      action: 'manual_review',
+      reason: 'Amount mismatch. Expected 100 ETB but Verify.et returned 10 ETB.'
+    })
+  },
   findCheckoutMatch: ({ client, mainProduct }) => {
     if (mainProduct?.id !== 'p7') return null;
     const product = (client.products || []).find(item => item.id === 'p11');
@@ -567,6 +575,65 @@ const sendTextForConversation = async (conv, text) => {
   assert.ok(ctx.sent.at(-1).extra.reply_markup.inline_keyboard.some(row => row.some(btn => btn.callback_data === 'productflow:intent_continue:intent-test-1:p8')));
   await handleProductflowCallback(data, client, intentConversation, ctx, 'intent_later:intent-test-1');
   assert.equal(data.productIntents.find(item => item.id === 'intent-test-1').status, 'dismissed');
+
+  const autoClient = structuredClone(client);
+  autoClient.id = 'client-auto-pay';
+  autoClient.settings.paymentVerificationMode = 'automatic';
+  autoClient.settings.paymentOptions = [{
+    method: 'Commercial Bank of Ethiopia (CBE)',
+    accountNumber: '1000303997441',
+    accountName: 'Sprint Test Shop'
+  }];
+  const autoOrder = {
+    id: 'order_auto_fail',
+    clientId: autoClient.id,
+    telegramChatId: 'chat-auto-pay',
+    conversationId: 'conv-auto-pay',
+    status: 'confirmed',
+    paymentStatus: 'awaiting_screenshot',
+    productName: 'Premium Phone Case',
+    productCode: 'PC-300',
+    total: '100',
+    customerName: 'Auto Tester',
+    phone: '0911223344',
+    deliveryLocation: 'Bole Atlas'
+  };
+  const autoData = {
+    orders: [autoOrder],
+    products: [],
+    paymentProofs: [],
+    paymentVerifications: [],
+    paymentVerificationReferences: [],
+    notifications: []
+  };
+  const autoConversation = {
+    id: 'conv-auto-pay',
+    telegramChatId: 'chat-auto-pay',
+    customer: { name: 'Auto Tester' },
+    shopperLanguage: 'english',
+    stage: 'awaiting_payment_proof',
+    lastOrderId: autoOrder.id,
+    stageState: { stage: 'awaiting_payment_proof', orderId: autoOrder.id }
+  };
+  const autoCtx = {
+    ...ctx,
+    sent: [],
+    telegramMessages: [],
+    chat: { id: 'chat-auto-pay' },
+    telegram: {
+      sendMessage: async function (chatId, text, extra = {}) {
+        autoCtx.telegramMessages.push({ chatId, text, extra });
+      }
+    }
+  };
+  const autoProofResult = await handleProductflowText(autoData, autoClient, autoConversation, autoCtx, 'Reference FT1234567890 amount 100');
+  assert.match(autoProofResult.reply, /could not verify/i);
+  assert.equal(autoProofResult.stage, 'awaiting_payment_proof');
+  assert.equal(autoConversation.stage, 'awaiting_payment_proof');
+  assert.equal(autoData.paymentProofs[0].status, 'auto_verification_failed');
+  assert.equal(autoData.orders[0].paymentStatus, 'awaiting_screenshot');
+  assert.equal(autoCtx.telegramMessages.length, 0);
+  assert.ok(!autoProofResult.buttons.some(row => row.some(btn => /Confirm Payment/i.test(btn.text || ''))));
 
   const paymentConversation = {
     id: 'conv-payment',

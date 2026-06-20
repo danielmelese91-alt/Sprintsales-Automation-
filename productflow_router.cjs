@@ -821,7 +821,7 @@ const paymentInstructionsText = (client, order) => {
     lines.push(`   ${t(client, 'PAYMENT_NAME', { accountName: option.accountName }, `Name: ${option.accountName}`)}`);
   });
   lines.push('');
-  if (automaticPaymentEnabled(client)) {
+  if (automaticPaymentSelected(client)) {
     lines.push(automaticPaymentPrompt(client));
     lines.push('Please send it as text, not as a screenshot, so I can verify it automatically.');
   } else {
@@ -836,6 +836,15 @@ const paymentCopyButtons = client => validPaymentOptions(client).slice(0, 3).map
 }]));
 
 const paymentVerifier = () => deps.paymentVerificationService || null;
+const paymentModeForClient = client => {
+  const verifier = paymentVerifier();
+  if (verifier?.modeForClient) return verifier.modeForClient(client);
+  const settings = client?.settings || {};
+  return String(settings.paymentVerificationMode || settings.paymentVerification?.mode || client?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic'
+    ? 'automatic'
+    : 'manual';
+};
+const automaticPaymentSelected = client => paymentModeForClient(client) === 'automatic';
 const automaticPaymentEnabled = client => Boolean(paymentVerifier()?.canUseAutomatic?.(client));
 const automaticPaymentPrompt = client => t(
   client,
@@ -843,11 +852,11 @@ const automaticPaymentPrompt = client => t(
   {},
   'After payment, paste the bank/Telebirr SMS you received or the transaction/reference number here.'
 );
-const paymentProofPromptForClient = (client, fallback = '') => automaticPaymentEnabled(client)
+const paymentProofPromptForClient = (client, fallback = '') => automaticPaymentSelected(client)
   ? `${automaticPaymentPrompt(client)}\n\nPlease send it as text, not as a screenshot.`
   : t(client, 'PAYMENT_PROOF_PROMPT', {}, fallback || 'Please send your payment screenshot, transfer SMS, or copied bank/Telebirr message here.');
-const paymentReviewNoteForClient = client => automaticPaymentEnabled(client)
-  ? 'I will verify the SMS/reference automatically. If anything is unclear, the shop will review it.'
+const paymentReviewNoteForClient = client => automaticPaymentSelected(client)
+  ? 'I will verify the SMS/reference automatically. If it cannot be verified, I will ask you to resend the correct SMS or reference.'
   : t(client, 'PAYMENT_REVIEW_NOTE');
 
 const moneyNumber = value => {
@@ -3049,7 +3058,7 @@ async function handlePayment(client, conversation, orderId) {
   reply += `🚚 Delivery: ${deliveryFee} Birr\n`;
   reply += `**Total: ${total} Birr**\n\n`;
   reply += `${methodsText}\n\n`;
-  reply += automaticPaymentEnabled(client)
+  reply += automaticPaymentSelected(client)
     ? `Please complete payment and paste the bank/Telebirr SMS or transaction reference here.`
     : `Please complete payment and send the **payment proof** here.`;
 
@@ -3072,6 +3081,17 @@ async function handlePaymentScreenshot(data, client, conversation, ctx, photoFil
   const state = conversation.stageState || {};
   const order = state.order;
   if (!order) return { handled: false };
+
+  if (automaticPaymentSelected(client)) {
+    conversation.stage = 'awaiting_payment_proof';
+    conversation.stageState = { ...state, orderId: order.id, order, stage: 'awaiting_payment_proof' };
+    return {
+      handled: true,
+      reply: paymentProofPromptForClient(client),
+      buttons: [[{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]],
+      stage: 'awaiting_payment_proof'
+    };
+  }
 
   order.paymentScreenshotFileId = photoFileId;
   order.extractedPaymentAmount = '';
@@ -3332,6 +3352,64 @@ async function tryAutomaticPaymentVerification(data, client, conversation, order
   return result;
 }
 
+const automaticPaymentRetryText = (client, result = {}) => {
+  const reason = String(result?.reason || '').trim();
+  const setupIssue = /api key|not configured|pro plan|no supported saved payment account|no saved .* receiving account/i.test(reason);
+  const lines = setupIssue
+    ? [
+        'Automatic payment verification is not ready for this payment method right now.',
+        'Please check the payment details above and contact support if the account information looks wrong.'
+      ]
+    : [
+        'I could not verify that payment automatically yet.',
+        'Please paste the full bank/Telebirr SMS or the exact transaction/reference number again.',
+        'Make sure the amount and receiver account match the payment details above.'
+      ];
+  if (reason && !/api key/i.test(reason)) lines.push('', `Reason: ${reason}`);
+  return lines.join('\n');
+};
+
+async function handleAutomaticPaymentReviewNeeded(data, client, conversation, order, proof, ctx, result = {}) {
+  const updatedAt = new Date().toISOString();
+  const reason = result?.reason || proof?.autoVerification?.reason || 'Automatic verification could not complete.';
+  proof.status = 'auto_verification_failed';
+  proof.verificationNote = reason;
+  proof.updatedAt = updatedAt;
+  order.paymentStatus = 'awaiting_screenshot';
+  order.awaitingPaymentProof = true;
+  order.paymentProofId = proof.id;
+  order.updatedAt = updatedAt;
+  conversation.stage = 'awaiting_payment_proof';
+  conversation.stageState = { stage: 'awaiting_payment_proof', orderId: order.id };
+
+  if (/api key|not configured|pro plan|no supported saved payment account|no saved .* receiving account/i.test(String(reason))) {
+    await deps.sendClientNotification?.(
+      data,
+      client,
+      `auto-payment-config-${proof.id}`,
+      [
+        'Automatic payment verification needs attention.',
+        `Order: ${publicOrderCode(order)} (${order.id})`,
+        `Reason: ${reason}`,
+        'The shopper was asked to resend the SMS/reference or contact support. No manual approval button was sent.'
+      ].join('\n'),
+      'orders',
+      30
+    ).catch(() => null);
+  }
+
+  return {
+    handled: true,
+    reply: automaticPaymentRetryText(client, result),
+    buttons: [
+      [{ text: 'Submit Payment Proof', callback_data: 'productflow:payment_proof' }],
+      [{ text: 'Talk to Support', callback_data: 'productflow:support' }],
+      [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
+    ],
+    stage: 'awaiting_payment_proof'
+  };
+}
+
 async function handlePaymentProofText(data, client, conversation, ctx, text) {
   const order = paymentProofOrderForConversation(data, client, conversation);
   if (!order) {
@@ -3363,7 +3441,9 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
       amount: hints.amount,
       paymentDate: '',
       provider: hints.provider,
-      note: 'Payment proof was submitted as customer text/SMS. Owner confirmation is required.'
+      note: automaticPaymentSelected(client)
+        ? 'Payment proof was submitted as customer text/SMS for automatic verification.'
+        : 'Payment proof was submitted as customer text/SMS. Owner confirmation is required.'
     },
     createdAt: new Date().toISOString()
   };
@@ -3373,10 +3453,10 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
   order.status = order.status === 'draft' ? 'confirmed' : order.status;
   order.awaitingPaymentProof = false;
   order.updatedAt = new Date().toISOString();
-  conversation.stage = 'owner_verification';
-  conversation.stageState = { stage: 'owner_verification', orderId: order.id };
+  conversation.stage = automaticPaymentSelected(client) ? 'awaiting_payment_proof' : 'owner_verification';
+  conversation.stageState = { stage: conversation.stage, orderId: order.id };
 
-  if (automaticPaymentEnabled(client)) {
+  if (automaticPaymentSelected(client)) {
     const autoResult = await tryAutomaticPaymentVerification(data, client, conversation, order, proof, ctx, { notifyCustomer: false });
     if (autoResult.action === 'verified') {
       return {
@@ -3408,7 +3488,7 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
         stage: 'awaiting_payment_proof'
       };
     }
-    proof.verificationNote = autoResult.reason || proof.verificationNote || '';
+    return handleAutomaticPaymentReviewNeeded(data, client, conversation, order, proof, ctx, autoResult);
   }
 
   await notifyOwnerPaymentProof(data, client, order, proof, ctx, 'transfer SMS/text');
@@ -3860,7 +3940,7 @@ function trackingPaymentLabel(order, client = {}) {
     paid: t(client, 'PAYMENT_STATUS_PAID', {}, 'Paid'),
     confirmed: t(client, 'PAYMENT_STATUS_PAID', {}, 'Confirmed'),
     pending_verification: t(client, 'PAYMENT_STATUS_REVIEW', {}, 'Payment proof under review'),
-    awaiting_screenshot: t(client, 'PAYMENT_STATUS_WAITING', {}, 'Waiting for payment screenshot'),
+    awaiting_screenshot: t(client, 'PAYMENT_STATUS_WAITING', {}, 'Waiting for payment proof'),
     rejected: t(client, 'PAYMENT_STATUS_REJECTED', {}, 'Payment proof rejected'),
     refunded: t(client, 'PAYMENT_STATUS_REFUNDED', {}, 'Refunded')
   }[status] || status.replace(/[-_]/g, ' ');

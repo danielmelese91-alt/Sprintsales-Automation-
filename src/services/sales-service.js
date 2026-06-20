@@ -732,8 +732,11 @@ const publicOrderCode = orderOrId => {
   return short ? `#${short}` : '';
 };
 
-const autoVerifyEnabled = client => Boolean(paymentVerificationService?.canUseAutomatic?.(client));
-
+const autoPaymentSelected = client => {
+  if (paymentVerificationService?.modeForClient) return paymentVerificationService.modeForClient(client) === 'automatic';
+  const settings = client?.settings || {};
+  return String(settings.paymentVerificationMode || settings.paymentVerification?.mode || client?.paymentVerificationMode || 'manual').toLowerCase() === 'automatic';
+};
 const applyAutoVerifiedPayment = async ({ data, client, conversation, order, proof, ctx, result }) => {
   const verifiedAt = now();
   order.status = 'confirmed';
@@ -859,8 +862,10 @@ const recordPaymentProof = async ({ data, client, conversation, ctx }) => {
     currentOrder.updatedAt = now();
   }
 
-  if (currentOrder && autoVerifyEnabled(client)) {
-    const autoResult = await paymentVerificationService.verifyPaymentProof({ data, client, order: currentOrder, proof });
+  if (currentOrder && autoPaymentSelected(client)) {
+    const autoResult = paymentVerificationService?.verifyPaymentProof
+      ? await paymentVerificationService.verifyPaymentProof({ data, client, order: currentOrder, proof })
+      : { action: 'manual_review', reason: 'Payment verifier is not configured.' };
     if (autoResult.action === 'verified') {
       await applyAutoVerifiedPayment({ data, client, conversation, order: currentOrder, proof, ctx, result: autoResult });
       return proof;
@@ -869,7 +874,22 @@ const recordPaymentProof = async ({ data, client, conversation, ctx }) => {
       await applyDuplicatePaymentProof({ data, client, conversation, order: currentOrder, proof, ctx, result: autoResult });
       return proof;
     }
-    proof.verificationNote = autoResult.reason || proof.verificationNote || '';
+    const updatedAt = now();
+    proof.status = 'auto_verification_failed';
+    proof.verificationNote = autoResult.reason || proof.verificationNote || 'Automatic payment verification could not complete.';
+    proof.updatedAt = updatedAt;
+    currentOrder.paymentStatus = 'awaiting_screenshot';
+    currentOrder.awaitingPaymentProof = true;
+    currentOrder.updatedAt = updatedAt;
+    conversation.stage = 'awaiting_payment_proof';
+    conversation.stageState = { stage: 'awaiting_payment_proof', orderId: currentOrder.id };
+    await sendClientNotification(data, client, `auto-payment-review-${proof.id}`, [
+      `Automatic payment verification could not safely verify a payment for ${client.businessName}.`,
+      `Order: ${publicOrderCode(currentOrder)} (${currentOrder.id})`,
+      autoResult.reason ? `Reason: ${autoResult.reason}` : '',
+      'The shopper was asked to resend the SMS/reference or contact support. No manual approval button was sent.'
+    ].filter(Boolean).join('\n'), 'orders', 30);
+    return proof;
   }
 
   const ownerChatId = ownerPrivateChatId(client);
@@ -1457,7 +1477,9 @@ const sendDueFollowUps = async () => {
         const delayHours = sent === 0 ? 4 : 24;
         if (!lastAt || Date.now() - lastAt < delayHours * 60 * 60 * 1000) continue;
         const text = sent === 0
-          ? `Your order ${order.id} is ready for payment confirmation. After paying, please send the payment screenshot here so the team can prepare delivery.`
+          ? (autoPaymentSelected(client)
+              ? `Your order ${order.id} is ready for payment confirmation. After paying, please paste the bank/Telebirr SMS or transaction reference here so I can verify it automatically.`
+              : `Your order ${order.id} is ready for payment confirmation. After paying, please send the payment screenshot here so the team can prepare delivery.`)
           : `Final reminder for order ${order.id}: payment proof is still missing. If you changed your mind, no problem; you can browse again anytime.`;
         await bot.telegram.sendMessage(order.telegramChatId, text, {
           reply_markup: {

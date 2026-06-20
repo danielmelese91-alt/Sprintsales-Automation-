@@ -265,6 +265,9 @@ export function createPaymentVerificationService(deps = {}) {
     if (confirmedBefore) {
       return { action: 'duplicate', reason: 'Verify.et says this reference was confirmed before.', summary, amount };
     }
+    if (['queued', 'pending', 'processing', 'in_progress'].includes(String(summary.processingStatus || summary.status || '').toLowerCase())) {
+      return { action: 'manual_review', reason: 'Verify.et is still processing this reference. Ask the customer to try again in a few minutes or send the full SMS.', summary, amount };
+    }
     if (!summary.verified) {
       return { action: 'manual_review', reason: 'Verify.et did not return a successful verification.', summary, amount };
     }
