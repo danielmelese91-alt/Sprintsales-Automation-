@@ -1,4 +1,5 @@
 /api/* http://34.45.196.175:8080/api/:splat 200
+/shop/* http://34.45.196.175:8080/shop/:splat 200
 /uploads/* http://34.45.196.175:8080/uploads/:splat 200
 /product-images/* http://34.45.196.175:8080/product-images/:splat 200
 /telegram-media/* http://34.45.196.175:8080/telegram-media/:splat 200

@@ -98,6 +98,14 @@ export const defaultSettings = () => ({
     includeHashtags: true,
     includeOrderInstruction: true
   },
+  miniapp: {
+    enabled: true,
+    slug: '',
+    customDomain: '',
+    template: 'clean-retail',
+    themeColor: '#0f2a52',
+    accentColor: '#14b8a6'
+  },
   categoryTemplates: [],
   delivery: {
     mode: 'fixed_addis',

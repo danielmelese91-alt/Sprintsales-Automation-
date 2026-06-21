@@ -14,6 +14,7 @@ import { Input, Telegraf } from 'telegraf';
 import { createTelegramBotRuntime } from './src/bot/telegram-bot.js';
 import { createAuthMiddleware } from './src/middleware/auth.js';
 import { createAdminRoutes } from './src/routes/admin-routes.js';
+import { createMiniappRoutes } from './src/routes/miniapp-routes.js';
 import { createPublicRoutes } from './src/routes/public-routes.js';
 import { createOrderService } from './src/services/order-service.js';
 import { createNotificationService } from './src/services/notification-service.js';
@@ -1091,6 +1092,7 @@ const routeDeps = {
     writeData
 };
 app.use('/api', createAdminRoutes(routeDeps));
+app.use('/', createMiniappRoutes(routeDeps));
 app.use('/', createPublicRoutes(routeDeps));
 
 app.use((error, req, res, next) => {
