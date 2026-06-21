@@ -71,6 +71,23 @@ const daysUntilRenewal = billing => {
 
 const identityChangeLimit = field => ['email', 'phone'].includes(field) ? 3 : 5;
 
+const miniappSlug = value => String(value || '')
+  .toLowerCase()
+  .trim()
+  .replace(/['"]/g, '')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '')
+  .slice(0, 80);
+
+const miniappDomain = value => String(value || '')
+  .toLowerCase()
+  .trim()
+  .replace(/^https?:\/\//, '')
+  .replace(/^www\./, '')
+  .split('/')[0]
+  .replace(/[^a-z0-9.-]/g, '')
+  .slice(0, 120);
+
 export function createPublicRoutes(deps) {
   const {
     MB,
@@ -1274,6 +1291,41 @@ export function createPublicRoutes(deps) {
     const nextDeliveryZones = has('deliveryZones')
       ? (nextDeliveryMode === 'location_zones' ? normalizeDeliveryZones(b.deliveryZones) : [])
       : (nextDeliveryMode === 'location_zones' ? normalizeDeliveryZones(dl.zones || []) : []);
+    const incomingMiniapp = has('miniapp') && b.miniapp && typeof b.miniapp === 'object' ? b.miniapp : null;
+    const currentMiniapp = {
+      ...defaultSettings().miniapp,
+      ...(s.miniapp || {})
+    };
+    const nextMiniapp = incomingMiniapp ? {
+      enabled: incomingMiniapp.enabled !== false,
+      slug: miniappSlug(incomingMiniapp.slug || client.businessName || client.id),
+      customDomain: miniappDomain(incomingMiniapp.customDomain || ''),
+      template: ['clean-retail', 'boutique-grid'].includes(String(incomingMiniapp.template || '')) ? String(incomingMiniapp.template) : 'clean-retail',
+      themeColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.themeColor || '')) ? String(incomingMiniapp.themeColor) : '#0f2a52',
+      accentColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.accentColor || '')) ? String(incomingMiniapp.accentColor) : '#14b8a6'
+    } : currentMiniapp;
+    if (incomingMiniapp && !nextMiniapp.slug) {
+      return res.status(400).json({ error: 'MiniApp shop link slug is required.' });
+    }
+    if (incomingMiniapp) {
+      const slugConflict = (req.data.clients || []).find(item =>
+        item.id !== client.id &&
+        String(item.status || '').toLowerCase() === 'active' &&
+        miniappSlug(item.settings?.miniapp?.slug || item.settings?.storeSlug || item.businessName || item.id) === nextMiniapp.slug
+      );
+      if (slugConflict) {
+        return res.status(409).json({ error: 'That MiniApp shop link is already used by another business. Choose a different slug.' });
+      }
+      if (nextMiniapp.customDomain) {
+        const domainConflict = (req.data.clients || []).find(item =>
+          item.id !== client.id &&
+          miniappDomain(item.settings?.miniapp?.customDomain || item.settings?.miniappDomain || '') === nextMiniapp.customDomain
+        );
+        if (domainConflict) {
+          return res.status(409).json({ error: 'That MiniApp custom domain is already connected to another business.' });
+        }
+      }
+    }
     const cleanEmail = has('email') ? String(b.email || '').trim().toLowerCase() : '';
     if (has('email') && cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return res.status(400).json({ error: 'Please enter a valid email address.' });
@@ -1406,6 +1458,7 @@ export function createPublicRoutes(deps) {
       businessWebsite: has('businessWebsite') ? String(b.businessWebsite || '') : (s.businessWebsite || ''),
       businessSocialMedia: has('businessSocialMedia') ? String(b.businessSocialMedia || '') : (s.businessSocialMedia || ''),
       businessBranches: has('businessBranches') ? normalizeBranchLocations(b.businessBranches) : (Array.isArray(s.businessBranches) ? s.businessBranches : normalizeBranchLocations(s.businessBranches || '')),
+      miniapp: nextMiniapp,
       categories: nextCategories,
       categoryTemplates: nextCategoryTemplates,
       botUsername: has('botUsername') ? String(b.botUsername || s.botUsername || '') : (s.botUsername || ''),
