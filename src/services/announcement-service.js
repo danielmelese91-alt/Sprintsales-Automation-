@@ -39,7 +39,9 @@ const customerKeys = customer => [
   customer?.telegramChatId,
   customer?.phone,
   customer?.username,
-  customer?.conversationId
+  customer?.conversationId,
+  customer?.shopperSessionId,
+  ...(Array.isArray(customer?.shopperSessionIds) ? customer.shopperSessionIds : [])
 ].filter(Boolean).map(value => String(value).toLowerCase());
 
 const orderMatchesCustomer = (customer, order) => {
@@ -50,7 +52,9 @@ const orderMatchesCustomer = (customer, order) => {
     order?.telegramChatId,
     order?.phone,
     order?.username,
-    order?.conversationId
+    order?.conversationId,
+    order?.shopperSessionId,
+    ...(Array.isArray(order?.shopperSessionIds) ? order.shopperSessionIds : [])
   ].filter(Boolean).map(value => String(value).toLowerCase());
   return keys.some(key => vals.includes(key));
 };

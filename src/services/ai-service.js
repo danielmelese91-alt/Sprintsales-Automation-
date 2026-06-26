@@ -135,15 +135,36 @@ const describeProductImage = async (client, product) => {
   return '';
 };
 
+const compactList = value => {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean).join(', ');
+  return String(value || '').trim();
+};
+
+const productSpecFacts = product => {
+  const groups = Array.isArray(product?.specGroups) ? product.specGroups : [];
+  return groups
+    .map(group => {
+      const label = String(group?.label || group?.name || group?.key || '').trim();
+      const values = compactList(group?.values || group?.options || group?.choices);
+      return label && values ? `${label}: ${values}` : '';
+    })
+    .filter(Boolean)
+    .join('\n');
+};
+
 const productMarketingFacts = product => [
   product.code ? `Code: ${product.code}` : '',
   product.name ? `Name: ${product.name}` : '',
   productPrice(product) ? `Price: ${productPrice(product)}` : '',
-  product.sizes ? `Sizes: ${product.sizes}` : '',
-  product.colors ? `Colors: ${product.colors}` : '',
+  product.category ? `Category: ${product.category}` : '',
+  product.subcategory ? `Subcategory: ${product.subcategory}` : '',
+  product.sizes ? `Sizes: ${compactList(product.sizes)}` : '',
+  product.colors ? `Colors: ${compactList(product.colors)}` : '',
+  productSpecFacts(product),
   product.material ? `Material: ${product.material}` : '',
   product.variantNote ? `Variant note: ${product.variantNote}` : '',
   product.stockNote ? `Stock note: ${product.stockNote}` : '',
+  product.stockQuantity !== undefined && product.stockQuantity !== '' ? `Available quantity: ${product.stockQuantity}` : '',
   productAvailability(product) ? `Availability: ${productAvailability(product)}` : '',
   product.description ? `Description: ${product.description}` : '',
   product.notes ? `Notes: ${product.notes}` : ''
@@ -181,12 +202,16 @@ const withBotOrderInstruction = (caption, client, product, posting) => {
 
 const fallbackProductCaption = (client, product, posting = productPostingSettings(client.settings)) => {
   const discountFacts = productDiscountFacts(client, product);
+  const specFacts = [
+    posting.includeSizesColors && product.sizes ? `Sizes: ${compactList(product.sizes)}` : '',
+    posting.includeSizesColors && product.colors ? `Colors: ${compactList(product.colors)}` : '',
+    posting.includeSizesColors ? productSpecFacts(product) : ''
+  ].filter(Boolean).join('\n');
   const lines = [
     product.name || product.code,
     posting.includePrice && productPrice(product) ? `Price: ${productPrice(product)}` : '',
     discountFacts.publicLine,
-    posting.includeSizesColors && product.sizes ? `Sizes: ${product.sizes}` : '',
-    posting.includeSizesColors && product.colors ? `Colors: ${product.colors}` : '',
+    specFacts,
     posting.includeMaterial && product.material ? `Material: ${product.material}` : '',
     posting.includeAvailability && productAvailability(product) ? `Availability: ${productAvailability(product)}` : '',
     product.description ? product.description : '',
@@ -217,11 +242,10 @@ const productDiscountFacts = (client, product) => {
 const generateProductCaption = async (data, client, product, overrides = {}) => {
   const posting = { ...productPostingSettings(client.settings), ...overrides };
   const discountFacts = productDiscountFacts(client, product);
-  if (!discountFacts.lines && !overrides.forceRegenerate && product?.salesPostCaption) return withBotOrderInstruction(product.salesPostCaption, client, product, posting);
-  if (!discountFacts.lines && !overrides.forceRegenerate && product?.imageAnalysis?.salesPostCaption) return withBotOrderInstruction(product.imageAnalysis.salesPostCaption, client, product, posting);
   const ai = effectiveAi(client.settings || {});
   const fallback = fallbackProductCaption(client, product, posting);
   if (!ai.apiKey) return fallback;
+  const ownerDescription = String(product?.description || '').trim();
   const includeRules = [
     posting.includePrice ? 'include saved price if available' : 'do not include price',
     posting.includeSizesColors ? 'include saved sizes/colors if available' : 'do not include sizes/colors',
@@ -239,12 +263,23 @@ const generateProductCaption = async (data, client, product, overrides = {}) => 
       businessProfile: businessProfileText(client.settings || {}),
       products: [productMarketingFacts(product), discountFacts.lines ? `Active discounts:\n${discountFacts.lines}` : ''].filter(Boolean).join('\n'),
       knowledge: '',
-      message: `Create a Telegram product post caption for this product.
+      message: `Polish and structure a Telegram product post caption from the shop owner's own product description and saved product facts.
 Language preference: ${posting.language}.
 Style: ${posting.style}.
-Draft version: ${Number(overrides.variantNumber || 1)}${Number(overrides.variantNumber || 1) > 1 ? ' of 2. Make this version meaningfully different from the first draft while staying factual.' : ''}.
+Draft version: ${Number(overrides.variantNumber || 1)}${Number(overrides.variantNumber || 1) > 1 ? ' of 2. Keep the same facts but vary the phrasing and layout slightly.' : ''}.
 Rules: ${includeRules}.
-Use only the saved product facts. Do not invent price, size, color, material, stock, address, discount, or delivery.
+Owner-written description to improve:
+"""${ownerDescription || 'No owner description was written. Use the saved facts only and keep the caption simple.'}"""
+
+Your role is an editor, not the original writer:
+- Improve clarity, grammar, spacing, and commercial flow.
+- Preserve the owner's meaning and wording as much as possible.
+- Do not create a completely new ad concept.
+- Do not add claims about quality, scarcity, brand, originality, delivery, guarantee, or discount unless those exact facts are saved.
+- Do not invent price, size, color, material, stock, address, discount, or delivery.
+- If the owner description is Amharic, keep the Amharic natural, short, and everyday; avoid awkward literal translation and poetic language.
+- If the language setting is English, use simple clean English.
+- If the language setting is both, keep it concise and do not duplicate every fact in both languages.
 If an active discount is listed, mention it clearly and professionally without fake scarcity.
 If order instructions are enabled, include this exact buying path naturally: "${botOrderInstruction(client, product)}"
 Keep it under 900 characters because Telegram photo captions are limited.

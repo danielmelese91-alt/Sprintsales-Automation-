@@ -53,6 +53,37 @@ const normalizeDiscountSettings = (value = {}) => ({
     .slice(0, 20)
 });
 
+const normalizeCakeOrderSettings = (value = {}) => {
+  const rawMode = String(value.paymentMode || value.mode || '').toLowerCase();
+  const paymentMode = rawMode === 'deposit' || rawMode === 'delivery' ? rawMode : 'full';
+  const depositType = String(value.depositType || value.type || '').toLowerCase() === 'fixed' ? 'fixed' : 'percent';
+  const rawValue = Number(value.depositValue ?? value.value ?? 30);
+  const depositValue = depositType === 'fixed'
+    ? Math.max(0, Math.min(999999, Number.isFinite(rawValue) ? rawValue : 0))
+    : Math.max(0, Math.min(100, Number.isFinite(rawValue) ? rawValue : 30));
+  return {
+    paymentMode,
+    depositType,
+    depositValue,
+    writingRequired: value.writingRequired !== false
+  };
+};
+
+const normalizeProductCakePaymentSettings = (body = {}) => {
+  const rawMode = String(body.cakePaymentMode || body.paymentMode || '').toLowerCase();
+  const paymentMode = ['default', 'full', 'deposit', 'delivery'].includes(rawMode) ? rawMode : 'default';
+  const depositType = String(body.cakeDepositType || body.depositType || '').toLowerCase() === 'fixed' ? 'fixed' : 'percent';
+  const rawValue = Number(body.cakeDepositValue ?? body.depositValue ?? 0);
+  const depositValue = depositType === 'fixed'
+    ? Math.max(0, Math.min(999999, Number.isFinite(rawValue) ? rawValue : 0))
+    : Math.max(0, Math.min(100, Number.isFinite(rawValue) ? rawValue : 0));
+  return {
+    paymentMode,
+    depositType,
+    depositValue
+  };
+};
+
 const limitWords = (value, maxWords) => String(value || '')
   .trim()
   .split(/\s+/)
@@ -294,6 +325,40 @@ export function createPublicRoutes(deps) {
     const text = String(value || '').trim();
     return text ? text.split(/\n+/).map(line => ({ city: '', address: line.trim().slice(0, 240) })).filter(item => item.address).slice(0, 3) : [];
   };
+  const normalizeMapUrl = value => {
+    const text = String(value || '').trim().slice(0, 600);
+    if (!text) return '';
+    try {
+      const url = new URL(text);
+      const host = url.hostname.toLowerCase().replace(/^www\./, '');
+      const isGoogleMap = host === 'maps.app.goo.gl' || host === 'goo.gl' || host === 'google.com' || host.endsWith('.google.com');
+      return url.protocol === 'https:' && isGoogleMap ? text : '';
+    } catch {
+      return '';
+    }
+  };
+  const normalizeCoordinate = (value, min, max) => {
+    if (value === undefined || value === null || value === '') return null;
+    const n = Number(String(value).trim());
+    return Number.isFinite(n) && n >= min && n <= max ? n : null;
+  };
+  const coordinatesFromMapUrl = value => {
+    const text = String(value || '');
+    const patterns = [
+      /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+      /[?&](?:q|ll)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+      /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+      /%40(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/
+    ];
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (!match) continue;
+      const lat = normalizeCoordinate(match[1], -90, 90);
+      const lng = normalizeCoordinate(match[2], -180, 180);
+      if (lat !== null && lng !== null) return { lat, lng };
+    }
+    return null;
+  };
   const passwordMatchesUser = (input, user) => {
     const exact = String(input || '');
     if (!exact) return false;
@@ -356,7 +421,7 @@ export function createPublicRoutes(deps) {
           };
         })
         .filter(item => item && (item.originalPath || item.publicPath))
-        .slice(0, 3);
+        .slice(0, 5);
     }
     const originalPath = product?.imageOriginalPath || product?.originalImagePath || '';
     const publicPath = product?.publicImagePath || product?.watermarkedImagePath || product?.imagePath || '';
@@ -370,7 +435,12 @@ export function createPublicRoutes(deps) {
     }];
   };
 
-  const productPublicImagePath = product => productImageRecords(product)[0]?.publicPath || product.publicImagePath || product.watermarkedImagePath || product.imagePath || '';
+  const productPublicImagePath = product => {
+    const primary = productImageRecords(product)[0] || {};
+    return isCakeProduct(null, product)
+      ? (primary.originalPath || product.imageOriginalPath || product.originalImagePath || primary.publicPath || product.publicImagePath || product.imagePath || '')
+      : (primary.publicPath || product.publicImagePath || product.watermarkedImagePath || product.imagePath || '');
+  };
 
   const productOriginalImagePath = product => productImageRecords(product)[0]?.originalPath || product.imageOriginalPath || product.originalImagePath || product.imagePath || '';
 
@@ -410,16 +480,17 @@ export function createPublicRoutes(deps) {
     }
   };
 
-  const setPrimaryProductImageFields = product => {
+  const setPrimaryProductImageFields = (product, client = null) => {
     const records = productImageRecords(product).map((record, index) => ({ ...record, isPrimary: index === 0 }));
     product.images = records;
     const primary = records[0] || null;
+    const cakeProduct = client ? isCakeProduct(client, product) : false;
     product.imageOriginalPath = primary?.originalPath || '';
     product.originalImagePath = primary?.originalPath || '';
     product.imageOriginalName = primary?.originalName || '';
-    product.watermarkedImagePath = primary?.watermarkedPath || '';
-    product.publicImagePath = primary?.publicPath || primary?.watermarkedPath || '';
-    product.imagePath = primary?.publicPath || primary?.watermarkedPath || '';
+    product.watermarkedImagePath = cakeProduct ? '' : (primary?.watermarkedPath || '');
+    product.publicImagePath = cakeProduct ? (primary?.originalPath || primary?.publicPath || '') : (primary?.publicPath || primary?.watermarkedPath || '');
+    product.imagePath = product.publicImagePath;
     return records;
   };
 
@@ -434,6 +505,28 @@ export function createPublicRoutes(deps) {
       defaultSettings().watermarkName,
       'Sprintsales'
     ]));
+  };
+
+  const isCakeClient = client => {
+    const settings = client?.settings || {};
+    const profile = settings.businessProfile || {};
+    return /cake|bakery|pastr|dessert/.test([
+      settings.retailType,
+      settings.businessType,
+      profile.retailType,
+      profile.businessType,
+      client?.businessType
+    ].filter(Boolean).join(' ').toLowerCase());
+  };
+
+  const isCakeProduct = (client, product = {}) => {
+    if (isCakeClient(client)) return true;
+    return /cake|bakery|pastr|dessert|birthday|wedding|fondant|bento|cupcake/.test([
+      product.category,
+      product.subcategory,
+      product.name,
+      product.productType
+    ].filter(Boolean).join(' ').toLowerCase());
   };
 
   const watermarkBottomText = (client, product = {}) => [
@@ -461,6 +554,14 @@ export function createPublicRoutes(deps) {
     }
   };
 
+  const watermarkBottomTextForProduct = (client, product = {}) => isCakeProduct(client, product)
+    ? ''
+    : watermarkBottomText(client, product);
+
+  const watermarkLogoPathForProduct = (client, product = {}) => isCakeProduct(client, product)
+    ? ''
+    : watermarkLogoPath(client);
+
   const syncCategoryTemplates = (categories, existingTemplates = []) => {
     const existing = Array.isArray(existingTemplates) ? existingTemplates : [];
     return (categories || []).map(name => {
@@ -472,11 +573,18 @@ export function createPublicRoutes(deps) {
     });
   };
 
+  const normalizeCategoryIconImages = value => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value)
+      .map(([key, url]) => [String(key || '').trim().slice(0, 80), String(url || '').trim().slice(0, 500)])
+      .filter(([key, url]) => key && (/^https?:\/\//i.test(url) || /^\/uploads\//i.test(url))));
+  };
+
   const uploadedProductFiles = req => [
     ...(req.files?.image || []),
     ...(req.files?.images || []),
     ...(req.file ? [req.file] : [])
-  ].filter(Boolean).slice(0, 3);
+  ].filter(Boolean).slice(0, 5);
 
   const booleanField = (value, fallback = false) => {
     if (value === undefined) return fallback;
@@ -489,6 +597,21 @@ export function createPublicRoutes(deps) {
     if (['active', 'draft', 'hidden', 'out_of_stock'].includes(status)) return status;
     if (body.isActive !== undefined) return booleanField(body.isActive) ? 'active' : 'draft';
     return 'active';
+  };
+
+  const generateProductCode = (products, clientId, source = {}) => {
+    const base = firstCleanText([source.subcategory, source.category, source.name, 'PRD'])
+      .replace(/[^A-Za-z0-9]+/g, '')
+      .slice(0, 3)
+      .toUpperCase() || 'PRD';
+    const used = new Set((products || [])
+      .filter(product => product.clientId === clientId)
+      .map(product => String(product.code || '').toUpperCase()));
+    for (let index = 1; index < 10000; index += 1) {
+      const code = `${base}-${String(index).padStart(3, '0')}`;
+      if (!used.has(code)) return code;
+    }
+    return `${base}-${Date.now().toString().slice(-5)}`;
   };
 
   const csvValues = value => String(value || '')
@@ -565,10 +688,10 @@ export function createPublicRoutes(deps) {
   ].join('\n');
 
   const applyProductImagePipeline = async ({ client, product, file, files, appendExisting = false }) => {
-    const existingRecords = appendExisting ? productImageRecords(product).slice(0, 3) : [];
-    const availableSlots = Math.max(0, 3 - existingRecords.length);
+    const existingRecords = appendExisting ? productImageRecords(product).slice(0, 5) : [];
+    const availableSlots = Math.max(0, 5 - existingRecords.length);
     const allIncomingFiles = (files?.length ? files : file ? [file] : []).filter(Boolean);
-    const imageFiles = allIncomingFiles.slice(0, appendExisting ? availableSlots : 3);
+    const imageFiles = allIncomingFiles.slice(0, appendExisting ? availableSlots : 5);
     const ignoredFiles = allIncomingFiles.slice(imageFiles.length);
     if (ignoredFiles.length) await cleanupUploadedFiles(ignoredFiles);
     if (!imageFiles.length) return product;
@@ -584,32 +707,39 @@ export function createPublicRoutes(deps) {
     product.imageDescription = '';
     product.productAttributes = product.productAttributes || {};
     const imageRecords = existingRecords.map((record, index) => ({ ...record, isPrimary: index === 0 }));
+    const cakeProduct = isCakeProduct(client, product);
     for (const currentFile of imageFiles) {
       const originalPath = currentFile.path;
-      const watermarkedPath = watermarkedPathForOriginal(originalPath);
-      await createWatermarkedProductImage({
-        inputPath: originalPath,
-        outputPath: watermarkedPath,
-        centerText: watermarkCenterText(client),
-        bottomText: watermarkBottomText(client, product),
-        bottomLogoPath: watermarkLogoPath(client)
-      });
+      let watermarkedPath = '';
+      let publicPath = originalPath;
+      if (!cakeProduct) {
+        watermarkedPath = watermarkedPathForOriginal(originalPath);
+        await createWatermarkedProductImage({
+          inputPath: originalPath,
+          outputPath: watermarkedPath,
+          centerText: watermarkCenterText(client),
+          bottomText: watermarkBottomTextForProduct(client, product),
+          bottomLogoPath: watermarkLogoPathForProduct(client, product)
+        });
+        publicPath = watermarkedPath;
+      }
       imageRecords.push({
         originalPath,
         watermarkedPath,
-        publicPath: watermarkedPath,
+        publicPath,
         originalName: currentFile.originalname || '',
         isPrimary: imageRecords.length === 0
       });
     }
-    product.images = imageRecords.slice(0, 3).map((record, index) => ({ ...record, isPrimary: index === 0 }));
-    product.watermarkedImagePath = imageRecords[0]?.watermarkedPath || '';
+    product.images = imageRecords.slice(0, 5).map((record, index) => ({ ...record, isPrimary: index === 0 }));
+    product.watermarkedImagePath = cakeProduct ? '' : (imageRecords[0]?.watermarkedPath || '');
     product.publicImagePath = imageRecords[0]?.publicPath || '';
     product.imagePath = imageRecords[0]?.publicPath || '';
     product.watermark = {
-      centerText: watermarkCenterText(client),
-      bottomText: watermarkBottomText(client, product),
-      bottomLogoPath: watermarkLogoPath(client),
+      disabled: cakeProduct,
+      centerText: cakeProduct ? '' : watermarkCenterText(client),
+      bottomText: cakeProduct ? '' : watermarkBottomTextForProduct(client, product),
+      bottomLogoPath: cakeProduct ? '' : watermarkLogoPathForProduct(client, product),
       createdAt: now()
     };
     return product;
@@ -1300,7 +1430,7 @@ export function createPublicRoutes(deps) {
       enabled: incomingMiniapp.enabled !== false,
       slug: miniappSlug(incomingMiniapp.slug || client.businessName || client.id),
       customDomain: miniappDomain(incomingMiniapp.customDomain || ''),
-      template: ['clean-retail', 'boutique-grid'].includes(String(incomingMiniapp.template || '')) ? String(incomingMiniapp.template) : 'clean-retail',
+      template: 'clean-retail',
       themeColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.themeColor || '')) ? String(incomingMiniapp.themeColor) : '#0f2a52',
       accentColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.accentColor || '')) ? String(incomingMiniapp.accentColor) : '#14b8a6'
     } : currentMiniapp;
@@ -1333,6 +1463,21 @@ export function createPublicRoutes(deps) {
     if (cleanEmail && (req.data.users || []).some(user => user.id !== req.user.id && String(user.email || '').toLowerCase() === cleanEmail)) {
       return res.status(409).json({ error: 'That email is already used by another account.' });
     }
+    const incomingMapUrl = has('businessMapUrl') ? String(b.businessMapUrl || '').trim() : '';
+    const nextBusinessMapUrl = has('businessMapUrl') ? normalizeMapUrl(incomingMapUrl) : (bp.mapUrl || '');
+    if (incomingMapUrl && !nextBusinessMapUrl) {
+      return res.status(400).json({ error: 'Please paste a valid HTTPS Google Maps share link for the shop location.' });
+    }
+    const mapCoordinates = coordinatesFromMapUrl(nextBusinessMapUrl);
+    const nextShopLatitude = has('shopLatitude')
+      ? normalizeCoordinate(b.shopLatitude, -90, 90)
+      : (mapCoordinates?.lat ?? normalizeCoordinate(bp.mapLatitude ?? dl.shop_latitude, -90, 90));
+    const nextShopLongitude = has('shopLongitude')
+      ? normalizeCoordinate(b.shopLongitude, -180, 180)
+      : (mapCoordinates?.lng ?? normalizeCoordinate(bp.mapLongitude ?? dl.shop_longitude, -180, 180));
+    if ((has('shopLatitude') && String(b.shopLatitude || '').trim() && nextShopLatitude === null) || (has('shopLongitude') && String(b.shopLongitude || '').trim() && nextShopLongitude === null)) {
+      return res.status(400).json({ error: 'Please enter valid map coordinates. Latitude must be -90 to 90 and longitude must be -180 to 180.' });
+    }
     client.identity = {
       clientId: client.identity?.clientId || client.id,
       createdAt: client.identity?.createdAt || client.createdAt || now(),
@@ -1348,6 +1493,19 @@ export function createPublicRoutes(deps) {
       phone: has('phone') ? String(b.phone || '').trim().slice(0, 40) : (client.phone || ''),
       email: has('email') ? cleanEmail : (client.email || '')
     };
+    if (has('phone') && identityDraft.phone) {
+      const userConflict = (req.data.users || []).find(user =>
+        user.id !== req.user.id &&
+        samePhoneNumber(user.phone, identityDraft.phone)
+      );
+      const clientConflict = (req.data.clients || []).find(item =>
+        item.id !== client.id &&
+        samePhoneNumber(item.phone, identityDraft.phone)
+      );
+      if (userConflict || clientConflict) {
+        return res.status(409).json({ error: 'That phone number is already used by another SprintSales account. Use a different phone number or contact admin.' });
+      }
+    }
     const identityChanges = ['businessName', 'ownerName', 'phone', 'email']
       .filter(field => has(field) && String(identityDraft[field] || '') !== String(client[field] || ''))
       .map(field => ({ field, from: String(client[field] || ''), to: String(identityDraft[field] || '') }));
@@ -1461,6 +1619,7 @@ export function createPublicRoutes(deps) {
       miniapp: nextMiniapp,
       categories: nextCategories,
       categoryTemplates: nextCategoryTemplates,
+      categoryIconImages: has('categoryIconImages') ? normalizeCategoryIconImages(b.categoryIconImages) : (s.categoryIconImages || s.cakeTypeIconImages || {}),
       botUsername: has('botUsername') ? String(b.botUsername || s.botUsername || '') : (s.botUsername || ''),
       telegramOwnerChatId: has('telegramOwnerChatId') ? String(b.telegramOwnerChatId || s.telegramOwnerChatId || '') : (s.telegramOwnerChatId || ''),
       aiMonthlyReplyLimit: has('aiMonthlyReplyLimit') ? Math.min(100000, Math.max(0, Number(b.aiMonthlyReplyLimit || 1000))) : s.aiMonthlyReplyLimit,
@@ -1493,6 +1652,9 @@ export function createPublicRoutes(deps) {
         timeline: has('businessTimeline') ? String(b.businessTimeline || '') : bp.timeline,
         contact: has('businessContact') ? String(b.businessContact || '') : bp.contact,
         address: has('businessAddress') ? String(b.businessAddress || '') : bp.address,
+        mapUrl: has('businessMapUrl') ? nextBusinessMapUrl : (bp.mapUrl || ''),
+        mapLatitude: nextShopLatitude,
+        mapLongitude: nextShopLongitude,
         delivery: has('businessDelivery') ? String(b.businessDelivery || '') : bp.delivery,
         paymentInstructions: has('businessPaymentInstructions') ? String(b.businessPaymentInstructions || '') : bp.paymentInstructions,
         policies: has('businessPolicies') ? String(b.businessPolicies || '') : bp.policies,
@@ -1507,11 +1669,12 @@ export function createPublicRoutes(deps) {
         addis_delivery_fee: has('addisDeliveryFee') ? Math.max(0, Math.min(99999, Number.isFinite(Number(b.addisDeliveryFee)) ? Number(b.addisDeliveryFee) : 0)) : (dl.addis_delivery_fee ?? 300),
         outside_addis_behavior: has('outsideAddisBehavior') ? (b.outsideAddisBehavior === 'reject' ? 'reject' : 'manual_confirmation') : (dl.outside_addis_behavior || 'manual_confirmation'),
         shop_address: has('shopAddress') ? String(b.shopAddress || '') : (dl.shop_address || ''),
-        shop_latitude: has('shopLatitude') ? (Number(b.shopLatitude) || null) : (dl.shop_latitude || null),
-        shop_longitude: has('shopLongitude') ? (Number(b.shopLongitude) || null) : (dl.shop_longitude || null),
+        shop_latitude: has('shopLatitude') || has('businessMapUrl') ? nextShopLatitude : (dl.shop_latitude || null),
+        shop_longitude: has('shopLongitude') || has('businessMapUrl') ? nextShopLongitude : (dl.shop_longitude || null),
         zones: nextDeliveryZones
       },
       discounts: has('discounts') ? normalizeDiscountSettings(b.discounts) : normalizeDiscountSettings(s.discounts || defaultSettings().discounts),
+      cakeOrderSettings: has('cakeOrderSettings') ? normalizeCakeOrderSettings(b.cakeOrderSettings) : normalizeCakeOrderSettings(s.cakeOrderSettings || defaultSettings().cakeOrderSettings),
       paymentOptions: has('paymentOptions') ? normalizePaymentOptions(b.paymentOptions) : normalizePaymentOptions(s.paymentOptions || []),
       paymentVerificationMode: has('paymentVerificationMode')
         ? (String(b.paymentVerificationMode || '').toLowerCase() === 'automatic' ? 'automatic' : 'manual')
@@ -2165,7 +2328,7 @@ export function createPublicRoutes(deps) {
     res.json({ counts: audience.counts, eligible: audience.eligible.slice(0, 50) });
   });
   
-  router.post('/api/client/products', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields([{ name: 'image', maxCount: 3 }, { name: 'images', maxCount: 6 }]), async (req, res) => {
+  router.post('/api/client/products', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields([{ name: 'image', maxCount: 5 }, { name: 'images', maxCount: 8 }]), async (req, res) => {
     try {
       const uploadedFiles = uploadedProductFiles(req);
       const client = clientFor(req.data, req.user.clientId);
@@ -2187,11 +2350,15 @@ export function createPublicRoutes(deps) {
         await cleanupUploadedFiles(uploadedFiles);
         return res.status(400).json({ error: `Product image storage limit reached. Each client can use up to ${quotas.maxProductImageStorageMbPerClient} MB for product images.` });
       }
-      const code = String(req.body.code || '').trim().toUpperCase();
       const name = String(req.body.name || '').trim();
+      const code = (String(req.body.code || '').trim().toUpperCase() || generateProductCode(products, req.user.clientId, {
+        name,
+        category: req.body.category,
+        subcategory: req.body.subcategory
+      }));
       if (!code || !name) {
         await cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({ error: 'Product code and product name are required.' });
+        return res.status(400).json({ error: 'Product name is required.' });
       }
       if (clientProducts.some(product => product.code.toUpperCase() === code)) {
         await cleanupUploadedFiles(uploadedFiles);
@@ -2241,6 +2408,8 @@ export function createPublicRoutes(deps) {
         tags: Array.isArray(req.body.tags) ? req.body.tags : [],
         availability,
         description: String(req.body.description || ''),
+        featured: req.body.featured === 'true',
+        cakePaymentSettings: normalizeProductCakePaymentSettings(req.body),
         notes: String(req.body.notes || ''),
         imagePath: '',
         images: [],
@@ -2431,7 +2600,7 @@ export function createPublicRoutes(deps) {
     const removed = records[index];
     const remaining = records.filter((_record, recordIndex) => recordIndex !== index);
     product.images = remaining.map((record, recordIndex) => ({ ...record, isPrimary: recordIndex === 0 }));
-    setPrimaryProductImageFields(product);
+    setPrimaryProductImageFields(product, client);
     product.updatedAt = now();
     await unlinkProductImageRecord(req.user.clientId, removed);
     addAuditLog(req.data, {
@@ -2445,7 +2614,7 @@ export function createPublicRoutes(deps) {
     res.json({ ok: true, product });
   });
   
-  router.put('/api/client/products/:id', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields([{ name: 'image', maxCount: 3 }, { name: 'images', maxCount: 6 }]), async (req, res) => {
+  router.put('/api/client/products/:id', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields([{ name: 'image', maxCount: 5 }, { name: 'images', maxCount: 8 }]), async (req, res) => {
     try {
       const uploadedFiles = uploadedProductFiles(req);
       const product = (req.data.products || []).find(item => item.id === req.params.id && item.clientId === req.user.clientId);
@@ -2453,11 +2622,15 @@ export function createPublicRoutes(deps) {
         await cleanupUploadedFiles(uploadedFiles);
         return res.status(404).json({ error: 'Product not found' });
       }
-      const code = String(req.body.code || '').trim().toUpperCase();
       const name = String(req.body.name || '').trim();
+      const code = (String(req.body.code || '').trim().toUpperCase() || product.code || generateProductCode(req.data.products, req.user.clientId, {
+        name,
+        category: req.body.category || product.category,
+        subcategory: req.body.subcategory || product.subcategory
+      }));
       if (!code || !name) {
         await cleanupUploadedFiles(uploadedFiles);
-        return res.status(400).json({ error: 'Product code and product name are required.' });
+        return res.status(400).json({ error: 'Product name is required.' });
       }
       const duplicate = (req.data.products || []).find(item =>
         item.clientId === req.user.clientId &&
@@ -2486,9 +2659,9 @@ export function createPublicRoutes(deps) {
       }
       const oldImagePaths = productImagePaths(product);
       if (uploadedFiles.length) {
-        if (productImageRecords(product).length >= 3) {
+        if (productImageRecords(product).length >= 5) {
           await cleanupUploadedFiles(uploadedFiles);
-          return res.status(400).json({ error: 'This product already has 3 images. Remove an old image before adding another one.' });
+          return res.status(400).json({ error: 'This product already has 5 images. Remove an old image before adding another one.' });
         }
         const currentProductImageBytes = await directorySize(path.join(productImageDir, req.user.clientId));
         let previousImageBytes = 0;
@@ -2525,6 +2698,8 @@ export function createPublicRoutes(deps) {
       product.tags = Array.isArray(req.body.tags) ? req.body.tags : product.tags || [];
       product.availability = productStatus === 'out_of_stock' ? 'out_of_stock' : String(req.body.availability || '');
       product.description = String(req.body.description || '');
+      product.featured = req.body.featured === 'true';
+      product.cakePaymentSettings = normalizeProductCakePaymentSettings(req.body);
       product.notes = String(req.body.notes || '');
       product.discounts = {
         ...(product.discounts || {}),
@@ -2556,38 +2731,45 @@ export function createPublicRoutes(deps) {
       if (!uploadedFiles.length && productOriginalImagePath(product)) {
         try {
           const refreshedImages = [];
+          const cakeProduct = isCakeProduct(client, product);
           for (const imageRecord of productImageRecords(product)) {
             const originalPath = imageRecord.originalPath || imageRecord.publicPath;
             if (!originalPath) continue;
-            const currentPublicPath = imageRecord.publicPath || imageRecord.watermarkedPath || '';
-            const publicPath = currentPublicPath && path.resolve(currentPublicPath) !== path.resolve(originalPath)
-              ? currentPublicPath
-              : watermarkedPathForOriginal(originalPath);
-            await createWatermarkedProductImage({
-              inputPath: originalPath,
-              outputPath: publicPath,
-              centerText: watermarkCenterText(client),
-              bottomText: watermarkBottomText(client, product),
-              bottomLogoPath: watermarkLogoPath(client)
-            });
+            let publicPath = originalPath;
+            let watermarkedPath = '';
+            if (!cakeProduct) {
+              const currentPublicPath = imageRecord.publicPath || imageRecord.watermarkedPath || '';
+              publicPath = currentPublicPath && path.resolve(currentPublicPath) !== path.resolve(originalPath)
+                ? currentPublicPath
+                : watermarkedPathForOriginal(originalPath);
+              await createWatermarkedProductImage({
+                inputPath: originalPath,
+                outputPath: publicPath,
+                centerText: watermarkCenterText(client),
+                bottomText: watermarkBottomTextForProduct(client, product),
+                bottomLogoPath: watermarkLogoPathForProduct(client, product)
+              });
+              watermarkedPath = publicPath;
+            }
             refreshedImages.push({
               ...imageRecord,
               originalPath,
-              watermarkedPath: publicPath,
+              watermarkedPath,
               publicPath,
               isPrimary: refreshedImages.length === 0
             });
           }
           if (refreshedImages.length) {
             product.images = refreshedImages;
-            product.watermarkedImagePath = refreshedImages[0].watermarkedPath;
+            product.watermarkedImagePath = cakeProduct ? '' : refreshedImages[0].watermarkedPath;
             product.publicImagePath = refreshedImages[0].publicPath;
             product.imagePath = refreshedImages[0].publicPath;
           }
           product.watermark = {
-            centerText: watermarkCenterText(client),
-            bottomText: watermarkBottomText(client, product),
-            bottomLogoPath: watermarkLogoPath(client),
+            disabled: cakeProduct,
+            centerText: cakeProduct ? '' : watermarkCenterText(client),
+            bottomText: cakeProduct ? '' : watermarkBottomTextForProduct(client, product),
+            bottomLogoPath: cakeProduct ? '' : watermarkLogoPathForProduct(client, product),
             updatedAt: now()
           };
         } catch (wmErr) {

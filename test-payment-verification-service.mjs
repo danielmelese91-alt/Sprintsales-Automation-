@@ -87,6 +87,29 @@ async function testDuplicateBlockedBeforeApiCall() {
   assert.equal(calls, 0);
 }
 
+async function testDuplicateBlockedAcrossDifferentClients() {
+  const data = {
+    paymentVerificationReferences: [{
+      clientId: 'another_client',
+      reference: 'FT1234567890',
+      status: 'verified',
+      orderId: 'order_existing'
+    }]
+  };
+  let calls = 0;
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => {
+      calls += 1;
+      return response(200, {});
+    }
+  });
+  const result = await service.verifyPaymentProof({ data, client: proClient, order, proof: structuredClone(proof) });
+  assert.equal(result.action, 'duplicate');
+  assert.equal(calls, 0);
+}
+
 async function testAmountMismatchFallsBackToManualReview() {
   const service = createPaymentVerificationService({
     apiKey: 'test-key',
@@ -357,8 +380,152 @@ async function testMissingReferenceNumberDoesNotSubmitGenericNumber() {
   assert.equal(calls, 0);
 }
 
+async function testReferencePrefixSelectsCbeWhenMultipleAccountsExist() {
+  const calls = [];
+  const client = {
+    ...proClient,
+    settings: {
+      paymentVerificationMode: 'automatic',
+      paymentOptions: [
+        proClient.settings.paymentOptions[0],
+        { method: 'Telebirr', accountNumber: '0927668219', accountName: 'Acme Trading' }
+      ]
+    }
+  };
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body) });
+      return response(200, {
+        data: [{
+          bank: 'cbe',
+          status: 'success',
+          verified: true,
+          amount: 1500,
+          receiverName: 'Acme Trading',
+          receiverAccount: '1****7441',
+          referenceNumber: 'FT1234567890',
+          confirmationHistory: { confirmedBefore: false },
+          settlementAccountMatch: { matched: true }
+        }],
+        verification: { processingStatus: 'completed', status: 'success', verified: true }
+      });
+    }
+  });
+  const result = await service.verifyPaymentProof({
+    data: {},
+    client,
+    order,
+    proof: { id: 'proof_cbe_prefix', manualSmsText: 'Reference FT1234567890 Amount 1500' }
+  });
+  assert.equal(result.action, 'verified');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.bank, 'cbe');
+}
+
+async function testTelebirrReceiverLast4AndFirstNameMatch() {
+  const client = {
+    ...proClient,
+    settings: {
+      paymentVerificationMode: 'automatic',
+      paymentOptions: [{
+        method: 'Telebirr',
+        accountNumber: '0927668219',
+        accountName: 'Matusala Techale'
+      }]
+    }
+  };
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => response(200, {
+      data: {
+        requestId: 'verify_telebirr',
+        bank: 'telebirr',
+        processingStatus: 'completed',
+        status: 'success',
+        verified: true,
+        result: {
+          bank: 'telebirr',
+          status: 'success',
+          verified: true,
+          amount: 1500,
+          receiverName: 'Matusala Techale Tsegaye',
+          referenceNumber: 'DFD2U37QQU',
+          transactionNumber: 'DFD2U37QQU',
+          bankSpecific: {
+            receiverName: 'Matusala Techale Tsegaye',
+            creditedPartyName: 'Matusala Techale Tsegaye',
+            receiverAccount: '2519****8219',
+            creditedPartyAccountNo: '2519****8219',
+            settledAmountValue: 1500,
+            reference: 'DFD2U37QQU'
+          }
+        }
+      }
+    })
+  });
+  const result = await service.verifyPaymentProof({
+    data: {},
+    client,
+    order,
+    proof: { id: 'proof_telebirr_real_shape', manualSmsText: 'Telebirr transaction DFD2U37QQU ETB 1500' }
+  });
+  assert.equal(result.action, 'verified');
+  assert.equal(result.bank, 'telebirr');
+}
+
+async function testReceiverMismatchBlocksVerification() {
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => response(200, {
+      data: [{
+        bank: 'cbe',
+        status: 'success',
+        verified: true,
+        amount: 1500,
+        receiverName: 'Acme Trading',
+        receiverAccount: '1****9999',
+        referenceNumber: 'FT1234567890',
+        confirmationHistory: { confirmedBefore: false }
+      }],
+      verification: { processingStatus: 'completed', status: 'success', verified: true }
+    })
+  });
+  const result = await service.verifyPaymentProof({ data: {}, client: proClient, order, proof: structuredClone(proof) });
+  assert.equal(result.action, 'manual_review');
+  assert.match(result.reason, /Receiver account/);
+}
+
+async function testReturnedReferenceMismatchBlocksVerification() {
+  const service = createPaymentVerificationService({
+    apiKey: 'test-key',
+    isProClient: () => true,
+    fetchWithTimeout: async () => response(200, {
+      data: [{
+        bank: 'cbe',
+        status: 'success',
+        verified: true,
+        amount: 1500,
+        receiverName: 'Acme Trading',
+        receiverAccount: '1****7441',
+        referenceNumber: 'FTDIFFERENT99',
+        confirmationHistory: { confirmedBefore: false },
+        settlementAccountMatch: { matched: true }
+      }],
+      verification: { processingStatus: 'completed', status: 'success', verified: true }
+    })
+  });
+  const result = await service.verifyPaymentProof({ data: {}, client: proClient, order, proof: structuredClone(proof) });
+  assert.equal(result.action, 'manual_review');
+  assert.match(result.reason, /different transaction reference/);
+}
+
 await testSuccessfulVerification();
 await testDuplicateBlockedBeforeApiCall();
+await testDuplicateBlockedAcrossDifferentClients();
 await testAmountMismatchFallsBackToManualReview();
 await testQueuedVerificationExplainsProcessing();
 await testQueuedVerificationPollsToSuccess();
@@ -368,5 +535,9 @@ await testNoisyProviderHintUsesOnlySavedAccount();
 await testNestedVerifyEtShapeVerifies();
 await testReferenceNumberLabelDoesNotBecomeReference();
 await testMissingReferenceNumberDoesNotSubmitGenericNumber();
+await testReferencePrefixSelectsCbeWhenMultipleAccountsExist();
+await testTelebirrReceiverLast4AndFirstNameMatch();
+await testReceiverMismatchBlocksVerification();
+await testReturnedReferenceMismatchBlocksVerification();
 
 console.log('payment verification service tests passed');

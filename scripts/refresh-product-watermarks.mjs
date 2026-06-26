@@ -35,7 +35,7 @@ const imageRecords = product => {
         watermarkedPath: item.watermarkedPath || item.watermarkedImagePath || publicPath,
         isPrimary: item.isPrimary === true || index === 0
       };
-    }).filter(Boolean).slice(0, 3);
+    }).filter(Boolean).slice(0, 5);
   }
   const originalPath = product?.imageOriginalPath || product?.originalImagePath || '';
   const watermarkedPath = product?.watermarkedImagePath || product?.publicImagePath || product?.imagePath || '';
@@ -51,6 +51,28 @@ const centerTextFor = client => normalizeTelegramUsername(firstCleanText([
   'Sprintsales'
 ]));
 
+const isCakeClient = client => {
+  const settings = client?.settings || {};
+  const profile = settings.businessProfile || {};
+  return /cake|bakery|pastr|dessert/.test([
+    settings.retailType,
+    settings.businessType,
+    profile.retailType,
+    profile.businessType,
+    client?.businessType
+  ].filter(Boolean).join(' ').toLowerCase());
+};
+
+const isCakeProduct = (client, product = {}) => {
+  if (isCakeClient(client)) return true;
+  return /cake|bakery|pastr|dessert|birthday|wedding|fondant|bento|cupcake/.test([
+    product.category,
+    product.subcategory,
+    product.name,
+    product.productType
+  ].filter(Boolean).join(' ').toLowerCase());
+};
+
 const bottomTextFor = (client, product) => [
   firstCleanText([
     client?.settings?.watermarkName,
@@ -62,11 +84,14 @@ const bottomTextFor = (client, product) => [
 
 const data = JSON.parse(await fs.readFile(dataPath, 'utf8'));
 const clientsById = new Map((data.clients || []).map(client => [client.id, client]));
+const cakesOnly = process.argv.includes('--cakes-only');
 let refreshed = 0;
 let skipped = 0;
 
 for (const product of data.products || []) {
   const client = clientsById.get(product.clientId) || {};
+  const cakeProduct = isCakeProduct(client, product);
+  if (cakesOnly && !cakeProduct) continue;
   for (const record of imageRecords(product)) {
     const inputPath = resolvePath(record.originalPath);
     const outputPath = resolvePath(record.watermarkedPath) || (inputPath ? watermarkedPathForOriginal(inputPath) : '');
@@ -80,7 +105,7 @@ for (const product of data.products || []) {
         inputPath,
         outputPath,
         centerText: centerTextFor(client),
-        bottomText: bottomTextFor(client, product)
+        bottomText: cakeProduct ? '' : bottomTextFor(client, product)
       });
       refreshed += 1;
     } catch (error) {

@@ -758,7 +758,7 @@ const applyAutoVerifiedPayment = async ({ data, client, conversation, order, pro
   order.status = 'confirmed';
   order.paymentStatus = 'paid';
   order.paymentVerifiedAt = verifiedAt;
-  order.paymentVerifiedBy = 'verify.et';
+  order.paymentVerifiedBy = 'automatic';
   order.paymentAutoVerified = true;
   order.paymentVerificationReference = result.reference || proof?.extracted?.transactionId || '';
   order.paymentVerificationRequestId = result.verifyRequestId || '';
@@ -773,8 +773,8 @@ const applyAutoVerifiedPayment = async ({ data, client, conversation, order, pro
 
   proof.status = 'verified';
   proof.verifiedAt = verifiedAt;
-  proof.verifiedBy = 'verify.et';
-  proof.verificationNote = result.reason || 'Payment automatically verified by Verify.et.';
+  proof.verifiedBy = 'automatic';
+  proof.verificationNote = result.reason || 'Payment automatically verified.';
   proof.extracted ||= {};
   if (result.reference) proof.extracted.transactionId = result.reference;
   if (result.amount) proof.extracted.amount = String(result.amount);
@@ -786,23 +786,27 @@ const applyAutoVerifiedPayment = async ({ data, client, conversation, order, pro
 
   if (order.telegramChatId && ctx?.telegram) {
     await ctx.telegram.sendMessage(order.telegramChatId, [
+      '✅ Payment verified successfully',
+      '',
       `Payment confirmed. Thank you, ${order.customerName || 'dear customer'}!`,
       '',
-      'Your payment was verified automatically.',
+      order.total ? `Amount paid: ${order.total} Birr` : '',
       `Tracking code: ${publicOrderCode(order)}.`,
       `We are preparing: ${[order.productName, order.selectedSize, order.selectedColor, order.selectedOption].filter(Boolean).join(' ') || 'your order'}.`,
+      'Your purchase is complete. The shop will prepare your product for delivery and may contact you if any extra detail is needed.',
       '',
       `You are always welcome at ${client.businessName}.`
-    ].join('\n')).catch(error => console.warn('Auto payment customer notice failed:', error.message));
+    ].filter(Boolean).join('\n')).catch(error => console.warn('Auto payment customer notice failed:', error.message));
   }
 
   await sendClientNotification(data, client, `auto-payment-${proof.id}`, [
     `Payment automatically verified for ${client.businessName}.`,
+    `${result.amount || order.total || 0} Birr was automatically verified for the purchase below. Please double-check the deposit in your bank/wallet before delivery.`,
     `Order: ${publicOrderCode(order)} (${order.id})`,
     `Product: ${[order.productCode, order.productName].filter(Boolean).join(' | ')}`,
+    `Quantity: ${order.quantity || 1}`,
     `Total: ${order.total || 0} Birr`,
     result.reference ? `Reference: ${result.reference}` : '',
-    result.verifyRequestId ? `Verify.et request: ${result.verifyRequestId}` : '',
     `Customer: ${order.customerName || proof.customerName || 'Customer'}`,
     order.phone ? `Phone: ${order.phone}` : ''
   ].filter(Boolean).join('\n'), 'orders', 0);
@@ -893,7 +897,7 @@ const recordPaymentProof = async ({ data, client, conversation, ctx }) => {
     if (autoResult.action === 'pending') {
       const updatedAt = now();
       proof.status = 'auto_verification_pending';
-      proof.verificationNote = autoResult.reason || 'Verify.et is still processing this reference.';
+      proof.verificationNote = autoResult.reason || 'Automatic payment verification is still processing this reference.';
       proof.updatedAt = updatedAt;
       currentOrder.paymentStatus = 'pending_verification';
       currentOrder.awaitingPaymentProof = false;

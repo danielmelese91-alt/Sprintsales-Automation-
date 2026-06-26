@@ -286,6 +286,10 @@ const coreIconRules = [
 ];
 
 const cleanIconRules = [
+  ['birthday cakes?|wedding cakes?|custom cakes?|cakes?|bakery|baker(y|ies)|cupcakes?|mini cakes?|bento cakes?|pastries?|desserts?', '\uD83C\uDF82'],
+  ['cupcakes?|mini cakes?|bento cakes?', '\uD83E\uDDC1'],
+  ['cookies?|brownies?|donuts?|cheesecake|tarts?', '\uD83C\uDF6A'],
+  ['candles?|cake toppers?|cake accessories|gift packaging', '\uD83C\uDF81'],
   ['iphone|ios|apple phone|samsung|galaxy|tecno|infinix|redmi|xiaomi|itel|feature phone|used phone|mobile|smartphone|phone', '\uD83D\uDCF1'],
   ['phone cases?|covers?|screen protectors?|holders?', '\uD83D\uDEE1\uFE0F'],
   ['chargers?|cables?|type-c|power banks?|extension cords?', '\u26A1'],
@@ -417,6 +421,15 @@ export const retailTemplates = {
     ['Bedding & Home Textile', ['Bedsheets', 'Blankets', 'Comforters', 'Duvets', 'Pillows', 'Pillow covers', 'Mattress covers', 'Towels', 'Bathrobes', 'Curtains', 'Carpets', 'Rugs', 'Tablecloths', 'Sofa covers']],
     ['Lighting', ['LED bulbs', 'Rechargeable bulbs', 'Ceiling lights', 'Wall lights', 'Chandeliers', 'Desk lamps', 'Night lights', 'Solar lamps', 'Decorative lights', 'Strip lights']]
   ]),
+  cakes: template('Cakes and Bakery', [
+    ['Birthday Cakes', ['Kids birthday cakes', 'Number cakes', 'Photo cakes', 'Cartoon cakes', 'Chocolate birthday cakes', 'Vanilla birthday cakes', 'Red velvet birthday cakes', 'Simple birthday cakes']],
+    ['Wedding Cakes', ['Traditional wedding cakes', 'Modern wedding cakes', 'Tiered wedding cakes', 'Engagement cakes', 'Anniversary cakes']],
+    ['Occasion Cakes', ['Graduation cakes', 'Baby shower cakes', 'Corporate cakes', 'Holiday cakes', 'Religious celebration cakes', 'Congratulations cakes']],
+    ['Custom Cakes', ['Custom writing cakes', 'Photo print cakes', 'Character cakes', 'Fondant cakes', 'Theme cakes', 'Heart cakes', 'Mini custom cakes']],
+    ['Cupcakes & Mini Cakes', ['Cupcakes', 'Bento cakes', 'Mini cakes', 'Cake slices', 'Cake jars']],
+    ['Pastries & Desserts', ['Donuts', 'Cookies', 'Brownies', 'Cheesecake', 'Tarts', 'Dessert boxes']],
+    ['Cake Accessories', ['Candles', 'Cake toppers', 'Cake knives', 'Gift packaging', 'Cake boxes']]
+  ]),
   general: template('General Retail', [
     ['New Arrivals', []],
     ['Best Sellers', []],
@@ -431,7 +444,8 @@ const typeAliases = [
   ['electronics', ['electron', 'phone', 'computer', 'laptop', 'gadget']],
   ['furniture', ['furniture', 'sofa', 'bed', 'chair']],
   ['beauty', ['beauty', 'cosmetic', 'makeup', 'skincare', 'perfume', 'salon']],
-  ['home_kitchen', ['home', 'kitchen', 'appliance', 'cookware', 'household']]
+  ['home_kitchen', ['home', 'kitchen', 'appliance', 'cookware', 'household']],
+  ['cakes', ['cake', 'cakes', 'bakery', 'bakeries', 'pastry', 'pastries', 'dessert', 'cupcake']]
 ];
 
 export const retailTemplateKey = value => {
@@ -461,15 +475,12 @@ export const categoryContextFromSettings = settings => {
   return categories
     .map(category => ({
       name: String(category?.name || '').trim(),
-      icon: safeStoredIcon(category?.icon) || iconForRetailLabel(category?.name || ''),
+      icon: iconForRetailLabel(category?.name || ''),
       subcategories: unique(category?.subcategories || []),
-      subcategoryIcons: {
-        ...(category?.subcategoryIcons || {}),
-        ...Object.fromEntries(unique(category?.subcategories || []).map(subcategory => [
-          subcategory,
-          safeStoredIcon(category?.subcategoryIcons?.[subcategory]) || iconForRetailLabel(subcategory)
-        ]))
-      }
+      subcategoryIcons: Object.fromEntries(unique(category?.subcategories || []).map(subcategory => [
+        subcategory,
+        iconForRetailLabel(subcategory)
+      ]))
     }))
     .filter(category => category.name);
 };

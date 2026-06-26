@@ -133,6 +133,7 @@ export const createIntentRecoveryService = (deps = {}) => {
       const intents = data.productIntents.filter(intent =>
         intent.clientId === client.id &&
         intent.telegramChatId &&
+        (intent.source === 'order_started' || intent.orderStartedAt) &&
         ['active', 'reminded'].includes(intent.status || 'active') &&
         Number(intent.remindersSent || 0) < 2 &&
         !intent.optedOut

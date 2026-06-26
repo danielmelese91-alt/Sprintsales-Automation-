@@ -86,6 +86,7 @@ dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
 
 const port = Number(process.env.PORT || 8080);
+const listenHost = process.env.LISTEN_HOST || process.env.HOST || '0.0.0.0';
 const sessionSecret = process.env.SESSION_SECRET || 'dev-session-secret-change-me';
 const databaseUrl = process.env.DATABASE_URL || '';
 const dbSsl = process.env.DATABASE_SSL === 'true' || /supabase\.(co|com)|pooler\.supabase\.com/i.test(databaseUrl);
@@ -193,6 +194,7 @@ app.use(sameOriginGuard);
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser(sessionSecret));
 app.use(express.static(publicDir, {
+  index: false,
   setHeaders(res, servedPath) {
     const name = path.basename(servedPath);
     if (name === 'index.html' || name === 'dashboard.js') {
@@ -223,11 +225,22 @@ const {
 } = createNotificationService({
   Telegraf,
   botRunners,
+  fs,
+  crypto,
+  fetchWithTimeout,
   readData,
   writeData,
   ensureCollections,
   clientFor,
   now,
+  uid,
+  productImageDir,
+  createWatermarkedProductImage,
+  watermarkedPathForOriginal,
+  defaultSettings,
+  quotas,
+  addAuditLog,
+  isProductBusiness,
   recordBotError,
   addBotError
 });
@@ -1141,6 +1154,7 @@ export const __test = {
 
 initProductflow({
   sendClientNotification,
+  sendPlatformAdminBotMessage,
   getBot: clientId => botRunners.get(clientId),
   isProClient,
   findCheckoutMatch,
@@ -1169,8 +1183,8 @@ process.on('uncaughtExceptionMonitor', error => {
   notifyProcessProblem('process-uncaught-exception', 'Uncaught exception', error);
 });
 
-if (isMainModule && process.env.NODE_ENV !== 'test') app.listen(port, '0.0.0.0', () => {
-  console.log(`Telegram automation dashboard running on http://localhost:${port}`);
+if (isMainModule && process.env.NODE_ENV !== 'test') app.listen(port, listenHost, () => {
+  console.log(`Telegram automation dashboard running on http://${listenHost}:${port}`);
   readData()
     .then(async data => {
       await startPlatformAdminBot().catch(error => console.warn('SprintSales Admin bot listener failed:', error.message));

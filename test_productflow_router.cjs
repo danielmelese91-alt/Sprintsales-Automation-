@@ -199,6 +199,7 @@ const client = {
   billing: { plan: 'pro' },
   settings: {
     shopperLanguage: 'english',
+    miniapp: { enabled: false },
     delivery: {
       addis_delivery_fee: 120,
       outside_addis_behavior: 'manual_confirmation',
@@ -292,6 +293,21 @@ const sendTextForConversation = async (conv, text) => {
   assert.equal(isProductVisible(normalizeProduct({ name: 'No image', price: 1, status: 'active' })), true);
   assert.notEqual(isProductVisible(normalizeProduct({ name: 'No price', status: 'active' })), true);
   assert.notEqual(isProductVisible(normalizeProduct({ name: 'Gone', price: 1, status: 'active', availability: 'out_of_stock' })), true);
+
+  const miniappClient = {
+    ...client,
+    settings: {
+      ...client.settings,
+      miniapp: { enabled: true, slug: 'sprint-test-shop' },
+      businessLogoUrl: '/uploads/products/client1/logo.png'
+    }
+  };
+  const miniappGreeting = await generateProductflowGreeting(miniappClient, { ...conversation, firstWelcomeAt: '' }, data);
+  assert.equal(miniappGreeting.buttons[0][0].text, 'Open Shop');
+  assert.equal(miniappGreeting.buttons[0][0].web_app.url, 'https://automation.sprintsales.net/shop/sprint-test-shop');
+  assert.ok(!miniappGreeting.buttons.flat().some(btn => btn.callback_data === 'productflow:explore'));
+  assert.ok(!miniappGreeting.buttons.flat().some(btn => /stop/i.test(btn.text || '')));
+  assert.equal(miniappGreeting.imageUrl, 'https://automation.sprintsales.net/uploads/products/client1/logo.png');
 
   const greeting = await generateProductflowGreeting(client, conversation, data);
   assert.match(greeting.reply, /Welcome/);
@@ -638,7 +654,8 @@ const sendTextForConversation = async (conv, text) => {
   assert.equal(autoConversation.stage, 'awaiting_payment_proof');
   assert.equal(autoData.paymentProofs[0].status, 'auto_verification_failed');
   assert.equal(autoData.orders[0].paymentStatus, 'awaiting_screenshot');
-  assert.equal(autoCtx.telegramMessages.length, 0);
+  assert.equal(autoCtx.telegramMessages.length, 1);
+  assert.match(autoCtx.telegramMessages[0].text, /could not be verified automatically/i);
   assert.ok(!autoProofResult.buttons.some(row => row.some(btn => /Confirm Payment/i.test(btn.text || ''))));
 
   const pendingAutoData = {

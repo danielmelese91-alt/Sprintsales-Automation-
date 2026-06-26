@@ -78,6 +78,9 @@ export const defaultSettings = () => ({
     timeline: '',
     contact: '',
     address: '',
+    mapUrl: '',
+    mapLatitude: null,
+    mapLongitude: null,
     delivery: '',
     paymentInstructions: '',
     policies: '',
@@ -105,6 +108,12 @@ export const defaultSettings = () => ({
     template: 'clean-retail',
     themeColor: '#0f2a52',
     accentColor: '#14b8a6'
+  },
+  cakeOrderSettings: {
+    paymentMode: 'full',
+    depositType: 'percent',
+    depositValue: 30,
+    writingRequired: true
   },
   categoryTemplates: [],
   delivery: {

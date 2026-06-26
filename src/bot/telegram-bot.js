@@ -484,6 +484,46 @@ export function createTelegramBotRuntime(deps) {
       await ctx.reply(text, { reply_markup: { remove_keyboard: true } }).catch(() => null);
     };
     const cleanShopperText = value => String(value || '').replace(/\*\*/g, '').replace(/`/g, '');
+    const miniappSlug = value => String(value || '')
+      .toLowerCase()
+      .trim()
+      .replace(/['"]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    const publicAppBaseUrl = () => String(
+      process.env.PUBLIC_APP_URL ||
+      process.env.PUBLIC_BASE_URL ||
+      process.env.PUBLIC_LOGIN_URL ||
+      'https://automation.sprintsales.net'
+    )
+      .replace(/\/login\/?$/i, '')
+      .replace(/\/+$/, '');
+    const miniappShopUrl = currentClient => {
+      const settings = currentClient?.settings || {};
+      const slug = miniappSlug(settings.miniapp?.slug || settings.storeSlug || currentClient?.businessName || currentClient?.id || 'shop');
+      return `${publicAppBaseUrl()}/shop/${encodeURIComponent(slug)}`;
+    };
+    const absolutePublicUrl = value => {
+      const text = String(value || '').trim();
+      if (!text) return '';
+      if (/^https?:\/\//i.test(text)) return text;
+      if (!text.startsWith('/')) return '';
+      return `${publicAppBaseUrl()}${text}`;
+    };
+    const configureShopMenuButton = async currentClient => {
+      const url = miniappShopUrl(currentClient);
+      if (!/^https:\/\//i.test(url)) return;
+      await bot.telegram.callApi('setChatMenuButton', {
+        menu_button: {
+          type: 'web_app',
+          text: 'Shop',
+          web_app: { url }
+        }
+      }).catch(error => {
+        console.warn(`Could not set Shop menu button for ${currentClient.businessName}:`, error.message);
+      });
+    };
     const premiumWelcome = (currentClient, conversation) => {
       const name = String(conversation.customer?.name || '').split(/\s+/).filter(Boolean)[0] || 'there';
       const businessName = currentClient.businessName || 'our store';
@@ -551,7 +591,33 @@ export function createTelegramBotRuntime(deps) {
       conversation.conversationState = 'welcome';
       conversation.firstWelcomeAt ||= now();
       conversation.lastWelcomeAt = now();
-      await ctx.reply(greeting.reply, inlineKeyboard(greeting.buttons));
+      const imageUrl = absolutePublicUrl(greeting.imageUrl);
+      if (imageUrl) {
+        try {
+          if (String(greeting.reply || '').length <= 950) {
+            await ctx.replyWithPhoto(imageUrl, {
+              caption: greeting.reply,
+              ...inlineKeyboard(greeting.buttons)
+            });
+          } else {
+            await ctx.replyWithPhoto(imageUrl);
+            await ctx.reply(greeting.reply, inlineKeyboard(greeting.buttons));
+          }
+        } catch (_error) {
+          await ctx.reply(greeting.reply, inlineKeyboard(greeting.buttons));
+        }
+      } else {
+        await ctx.reply(greeting.reply, inlineKeyboard(greeting.buttons));
+      }
+      if (greeting.location?.latitude !== undefined && greeting.location?.longitude !== undefined) {
+        const latitude = Number(greeting.location.latitude);
+        const longitude = Number(greeting.location.longitude);
+        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          await ctx.replyWithLocation(latitude, longitude).catch(error => {
+            console.warn(`Could not send native shop location for ${currentClient.businessName}:`, error.message);
+          });
+        }
+      }
       data.messages.push({
         id: uid('msg'),
         clientId: currentClient.id,
@@ -567,6 +633,19 @@ export function createTelegramBotRuntime(deps) {
         target: conversation.customer?.username || conversation.customer?.name || conversation.telegramChatId,
         details: `Welcome menu shown to ${conversation.customer?.name || conversation.customer?.username || 'Telegram customer'}.`
       });
+      data.customerEvents ||= [];
+      data.customerEvents.push({
+        id: uid('event'),
+        clientId: currentClient.id,
+        conversationId: conversation.id,
+        telegramChatId: String(ctx.chat?.id || ''),
+        type: 'bot_welcome',
+        action: 'start_saved_for_miniapp',
+        customerName: conversation.customer?.name || '',
+        username: conversation.customer?.username || '',
+        createdAt: now()
+      });
+      if (data.customerEvents.length > 5000) data.customerEvents = data.customerEvents.slice(-5000);
       conversation.updatedAt = now();
     };
     const recordProductflowEvent = (data, currentClient, conversation, callbackData, ctx) => {
@@ -968,7 +1047,7 @@ export function createTelegramBotRuntime(deps) {
       if (proof) {
         conversation.pendingReplyToken = '';
         await writeData(data);
-        if (proof.status === 'verified' && proof.verifiedBy === 'verify.et') {
+        if (proof.status === 'verified' && ['automatic', 'verify.et'].includes(String(proof.verifiedBy || ''))) {
           return;
         }
         if (proof.status === 'rejected' && /duplicate payment/i.test(String(proof.verificationNote || ''))) {
@@ -1213,6 +1292,7 @@ export function createTelegramBotRuntime(deps) {
       await ctx.reply('Thank you for sharing your location. I will include this with your order details.').catch(console.error);
     });
     botRunners.set(client.id, bot);
+    await configureShopMenuButton(client);
     bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => null);
     bot.launch({ dropPendingUpdates: true }).catch(async error => {
       console.error(`Bot launch failed for ${client.businessName}:`, error.message);

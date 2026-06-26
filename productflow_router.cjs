@@ -68,8 +68,160 @@ const applyShopperLanguage = (client, conversation = {}) => {
 // PRODUCT NORMALIZER — maps any platform product schema to router fields
 // ════════════════════════════════════════════════════════════
 
+const miniappSlug = value => String(value || '')
+  .toLowerCase()
+  .trim()
+  .replace(/['"]/g, '')
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '')
+  .slice(0, 80);
+
+const publicAppBaseUrl = () => String(
+  process.env.PUBLIC_APP_URL ||
+  process.env.PUBLIC_BASE_URL ||
+  process.env.PUBLIC_LOGIN_URL ||
+  'https://automation.sprintsales.net'
+)
+  .replace(/\/login\/?$/i, '')
+  .replace(/\/+$/, '');
+
+const miniappShopUrl = client => {
+  const settings = client?.settings || {};
+  const miniapp = settings.miniapp || {};
+  const slugValue = miniappSlug(miniapp.slug || settings.storeSlug || client?.businessName || client?.id || 'shop');
+  return `${publicAppBaseUrl()}/shop/${encodeURIComponent(slugValue)}`;
+};
+
+const miniappEnabled = client => client?.settings?.miniapp?.enabled !== false;
+
+const firstText = values => values
+  .map(value => String(value || '').trim())
+  .find(Boolean) || '';
+
+const publicMapUrl = client => {
+  const settings = client?.settings || {};
+  const profile = settings.businessProfile || {};
+  const text = firstText([
+    profile.mapUrl,
+    settings.delivery?.shop_map_url,
+    settings.shopMapUrl
+  ]).slice(0, 600);
+  if (!text) return '';
+  try {
+    const url = new URL(text);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    const isGoogleMap = host === 'maps.app.goo.gl' || host === 'goo.gl' || host === 'google.com' || host.endsWith('.google.com');
+    return url.protocol === 'https:' && isGoogleMap ? text : '';
+  } catch (_error) {
+    return '';
+  }
+};
+
+const normalizeCoordinate = (value, min, max) => {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(String(value).trim());
+  return Number.isFinite(n) && n >= min && n <= max ? n : null;
+};
+
+const coordinatesFromMapUrl = value => {
+  const text = String(value || '');
+  const patterns = [
+    /@(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+    /[?&](?:q|ll)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/,
+    /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/,
+    /%40(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const latitude = normalizeCoordinate(match[1], -90, 90);
+    const longitude = normalizeCoordinate(match[2], -180, 180);
+    if (latitude !== null && longitude !== null) return { latitude, longitude };
+  }
+  return null;
+};
+
+const publicShopCoordinates = client => {
+  const settings = client?.settings || {};
+  const profile = settings.businessProfile || {};
+  const delivery = settings.delivery || {};
+  const latitude = normalizeCoordinate(profile.mapLatitude ?? delivery.shop_latitude, -90, 90);
+  const longitude = normalizeCoordinate(profile.mapLongitude ?? delivery.shop_longitude, -180, 180);
+  if (latitude !== null && longitude !== null) return { latitude, longitude };
+  return coordinatesFromMapUrl(publicMapUrl(client));
+};
+
+const publicShopAddress = client => {
+  const settings = client?.settings || {};
+  const profile = settings.businessProfile || {};
+  const branches = Array.isArray(settings.businessBranches) ? settings.businessBranches : [];
+  const primaryBranch = branches.find(branch => branch && (branch.address || branch.city)) || null;
+  const address = firstText([
+    primaryBranch?.address,
+    profile.address,
+    settings.delivery?.shop_address,
+    client?.address
+  ]);
+  const city = firstText([
+    primaryBranch?.city,
+    settings.city,
+    client?.city
+  ]);
+  return [address, city].filter(Boolean).join(address && city && address.toLowerCase().includes(city.toLowerCase()) ? '' : ', ');
+};
+
+const publicShopMapButton = client => {
+  if (publicShopCoordinates(client)) return null;
+  const url = publicMapUrl(client);
+  if (url) return { text: '📍 Shop Location', url };
+  const address = publicShopAddress(client);
+  if (!address) return null;
+  return { text: '📍 Shop Location', url: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` };
+};
+
+const openShopResult = (client, conversation = {}) => ({
+  handled: true,
+  reply: [
+    `Please open ${client?.businessName || 'the shop'} to browse products, search, and order.`,
+    publicShopAddress(client) ? `Shop address: ${publicShopAddress(client)}` : '',
+    'When you order, we will ask for your name and phone number so your order history stays with you.'
+  ].filter(Boolean).join('\n\n'),
+  location: publicShopCoordinates(client),
+  buttons: [
+    [{ text: 'Open Shop', web_app: { url: miniappShopUrl(client) } }],
+    ...(publicShopMapButton(client) ? [[publicShopMapButton(client)]] : []),
+    [{ text: t(client, preferredShopperLanguage(conversation) === 'english' ? 'BTN_LANGUAGE_AMHARIC' : 'BTN_LANGUAGE_ENGLISH'), callback_data: `productflow:language:${preferredShopperLanguage(conversation) === 'english' ? 'amharic' : 'english'}` }],
+    [
+      { text: 'My Orders', callback_data: 'productflow:track_order' },
+      { text: t(client, 'BTN_TALK_SUPPORT'), callback_data: 'productflow:support' }
+    ]
+  ],
+  stage: 'greeting'
+});
+
+const absolutePublicUrl = value => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^https?:\/\//i.test(text)) return text;
+  if (!text.startsWith('/')) return '';
+  return `${publicAppBaseUrl()}${text}`;
+};
+
+const welcomeImageUrl = client => absolutePublicUrl(
+  client?.settings?.businessProfile?.welcomeImageUrl ||
+  client?.settings?.businessProfile?.adImageUrl ||
+  client?.settings?.businessLogoUrl ||
+  ''
+);
+
 function normalizeProductImages(raw) {
   const records = Array.isArray(raw?.images) ? raw.images : [];
+  const cakeProduct = /cake|bakery|pastr|dessert|birthday|wedding|fondant|bento|cupcake/.test([
+    raw?.category,
+    raw?.subcategory,
+    raw?.name,
+    raw?.productType
+  ].filter(Boolean).join(' ').toLowerCase());
   const normalized = records
     .map((item, index) => {
       if (!item) return null;
@@ -82,52 +234,47 @@ function normalizeProductImages(raw) {
           isPrimary: index === 0
         };
       }
-      const publicPath = watermarkedCandidate(item.watermarkedPath ||
-        item.watermarkedPath ||
-        item.watermarkedImagePath ||
-        item.publicPath ||
-        item.publicImagePath ||
-        item.imagePath ||
-        item.imageUrl ||
-        item.url ||
-        '');
       const originalPath = item.originalPath ||
         item.imageOriginalPath ||
         item.originalImagePath ||
-        publicPath;
+        '';
+      const publicPath = cakeProduct
+        ? (originalPath || item.publicPath || item.publicImagePath || item.imagePath || item.imageUrl || item.url || '')
+        : watermarkedCandidate(item.watermarkedPath ||
+          item.watermarkedPath ||
+          item.watermarkedImagePath ||
+          item.publicPath ||
+          item.publicImagePath ||
+          item.imagePath ||
+          item.imageUrl ||
+          item.url ||
+          '');
       return {
         ...item,
-        originalPath,
+        originalPath: originalPath || publicPath,
         publicPath,
-        watermarkedPath: watermarkedCandidate(item.watermarkedPath || item.watermarkedImagePath || publicPath),
+        watermarkedPath: cakeProduct ? '' : watermarkedCandidate(item.watermarkedPath || item.watermarkedImagePath || publicPath),
         isPrimary: item.isPrimary === true || index === 0
       };
     })
     .filter(item => item && (item.publicPath || item.originalPath));
 
   if (!normalized.length) {
-    const legacy = raw?.watermarkedImageUrl ||
-      raw?.imageWatermarked ||
-      raw?.watermarkedImagePath ||
-      raw?.publicImageUrl ||
-      raw?.publicImagePath ||
-      raw?.imagePath ||
-      raw?.imageUrl ||
-      raw?.image ||
-      raw?.image_url ||
-      '';
+    const legacy = cakeProduct
+      ? (raw?.imageOriginalPath || raw?.originalImagePath || raw?.publicImageUrl || raw?.publicImagePath || raw?.imagePath || raw?.imageUrl || raw?.image || raw?.image_url || '')
+      : (raw?.watermarkedImageUrl || raw?.imageWatermarked || raw?.watermarkedImagePath || raw?.publicImageUrl || raw?.publicImagePath || raw?.imagePath || raw?.imageUrl || raw?.image || raw?.image_url || '');
     if (legacy) {
-      const publicPath = watermarkedCandidate(legacy);
+      const publicPath = cakeProduct ? legacy : watermarkedCandidate(legacy);
       normalized.push({
         originalPath: raw?.imageOriginalPath || raw?.originalImagePath || legacy,
         publicPath,
-        watermarkedPath: watermarkedCandidate(raw?.watermarkedImagePath || publicPath),
+        watermarkedPath: cakeProduct ? '' : watermarkedCandidate(raw?.watermarkedImagePath || publicPath),
         isPrimary: true
       });
     }
   }
 
-  return normalized.slice(0, 3);
+  return normalized.slice(0, 5);
 }
 
 function normalizeProduct(raw) {
@@ -1465,35 +1612,51 @@ async function generateProductflowGreeting(client, conversation = {}, data = nul
   // Enrich client with products from data if available
   if (data) enrichClientProducts(data, client);
   const bizName = client?.businessName || 'our store';
-  const cats = productCategories(client);
-  debugLog(`[ProductFlow Greeting] bizName=${bizName}, categories found: [${cats.join(', ')}], product count: ${activeProducts(client).length}`);
   const firstName = conversation?.customer?.firstName || conversation?.customer?.first_name || conversation?.customer?.name || 'friend';
   const isReturning = conversation?.lastSeenAt && Date.now() - new Date(conversation.lastSeenAt).getTime() < 6 * 60 * 60 * 1000;
   const profile = client?.settings?.businessProfile || {};
-  const firstTimeExtra = String(profile.welcomeMessage || '').trim() || t(client, 'WELCOME_FIRST_TIME_EXTRA', { businessName: bizName });
+  const customWelcome = String(profile.firstTimeWelcomeMessage || profile.welcomeMessage || '').trim();
+  const firstTimeExtra = customWelcome || t(client, 'WELCOME_FIRST_TIME_EXTRA', { businessName: bizName });
+  const shopAddress = publicShopAddress(client);
+  const shopLocationButton = publicShopMapButton(client);
   const reply = [
     t(client, isReturning ? 'WELCOME_BACK' : 'WELCOME_TITLE', { firstName, businessName: bizName }, `Welcome to ${bizName}!`),
-    t(client, 'WELCOME_HELP'),
-    isReturning ? '' : firstTimeExtra
+    isReturning ? 'Tap Open Shop to browse products, order, or check what is available today.' : firstTimeExtra,
+    !isReturning && !customWelcome && shopAddress ? `Shop address: ${shopAddress}` : '',
+    !isReturning && !customWelcome ? 'You can browse freely. When you order, we will ask for your name and phone number so your order history stays with you.' : ''
   ].filter(Boolean).join('\n\n');
 
   const buttons = [];
-  buttons.push([{ text: t(client, 'BTN_BROWSE_PRODUCTS'), callback_data: 'productflow:explore' }]);
-  buttons.push([{ text: t(client, preferredShopperLanguage(conversation) === 'english' ? 'BTN_LANGUAGE_AMHARIC' : 'BTN_LANGUAGE_ENGLISH'), callback_data: `productflow:language:${preferredShopperLanguage(conversation) === 'english' ? 'amharic' : 'english'}` }]);
-  if (cats.length > 0) {
-    const top = cats.slice(0, 3).map(c => ({
-      text: labelWithIcon(c.charAt(0).toUpperCase() + c.slice(1)),
-      callback_data: `productflow:category:${c.toLowerCase().replace(/\s+/g, '_')}`
-    }));
-    buttons.push(top);
+  if (miniappEnabled(client)) {
+    buttons.push([{ text: 'Open Shop', web_app: { url: miniappShopUrl(client) } }]);
+    if (shopLocationButton) buttons.push([shopLocationButton]);
+    buttons.push([{ text: t(client, preferredShopperLanguage(conversation) === 'english' ? 'BTN_LANGUAGE_AMHARIC' : 'BTN_LANGUAGE_ENGLISH'), callback_data: `productflow:language:${preferredShopperLanguage(conversation) === 'english' ? 'amharic' : 'english'}` }]);
+    buttons.push([
+      { text: 'My Orders', callback_data: 'productflow:track_order' },
+      { text: t(client, 'BTN_TALK_SUPPORT'), callback_data: 'productflow:support' }
+    ]);
+    buttons.push([{ text: t(client, 'BTN_PAYMENT_PROOF'), callback_data: 'productflow:payment_proof' }]);
+  } else {
+    const cats = productCategories(client);
+    debugLog(`[ProductFlow Greeting] legacy catalog bizName=${bizName}, categories found: [${cats.join(', ')}], product count: ${activeProducts(client).length}`);
+    buttons.push([{ text: t(client, 'BTN_BROWSE_PRODUCTS'), callback_data: 'productflow:explore' }]);
+    if (shopLocationButton) buttons.push([shopLocationButton]);
+    buttons.push([{ text: t(client, preferredShopperLanguage(conversation) === 'english' ? 'BTN_LANGUAGE_AMHARIC' : 'BTN_LANGUAGE_ENGLISH'), callback_data: `productflow:language:${preferredShopperLanguage(conversation) === 'english' ? 'amharic' : 'english'}` }]);
+    if (cats.length > 0) {
+      const top = cats.slice(0, 3).map(c => ({
+        text: labelWithIcon(c.charAt(0).toUpperCase() + c.slice(1)),
+        callback_data: `productflow:category:${c.toLowerCase().replace(/\s+/g, '_')}`
+      }));
+      buttons.push(top);
+    }
+    buttons.push([
+      { text: t(client, 'BTN_SEARCH'), callback_data: 'productflow:search' },
+      { text: t(client, 'BTN_TRACK_ORDER'), callback_data: 'productflow:track_order' }
+    ]);
+    buttons.push([{ text: t(client, 'BTN_TALK_SUPPORT'), callback_data: 'productflow:support' }]);
   }
-  buttons.push([
-    { text: t(client, 'BTN_SEARCH'), callback_data: 'productflow:search' },
-    { text: t(client, 'BTN_TRACK_ORDER'), callback_data: 'productflow:track_order' }
-  ]);
-  buttons.push([{ text: t(client, 'BTN_TALK_SUPPORT'), callback_data: 'productflow:support' }]);
 
-  return { reply, buttons, stage: 'greeting' };
+  return { reply, buttons, imageUrl: welcomeImageUrl(client), shopUrl: miniappShopUrl(client), location: publicShopCoordinates(client), stage: 'greeting' };
 }
 async function handleExplore(client, conversation) {
   const cats = populatedCategories(client);
@@ -1604,7 +1767,7 @@ function productGalleryPaths(product) {
     product?.imageUrl,
     product?.image
   ].filter(Boolean);
-  return [...new Set([...paths, ...legacy])].slice(0, 3);
+  return [...new Set([...paths, ...legacy])].slice(0, 5);
 }
 
 function productImagePath(product) {
@@ -1624,7 +1787,7 @@ async function sendProductMedia(ctx, product, reply, buttons = []) {
   const markup = buttons?.length ? Markup.inlineKeyboard(buttons) : {};
   if (galleryPaths.length > 1 && typeof ctx?.replyWithMediaGroup === 'function') {
     try {
-      const media = galleryPaths.slice(0, 3).map((imgPath, index) => ({
+      const media = galleryPaths.slice(0, 5).map((imgPath, index) => ({
         type: 'photo',
         media: imgPath.startsWith('http') ? imgPath : Input.fromLocalFile(imgPath),
         caption: index === 0 ? cleanShopperText(reply) : undefined
@@ -2494,13 +2657,16 @@ const contactManualRequested = text => /type\s*manually|manual|write|በመጻ�
 async function continueToPayment(client, conversation, order) {
   conversation.stage = 'completed';
   conversation.lastOrderId = order.id;
+  const paymentReadyText = [
+    'Your order details are ready.',
+    'Please complete the payment below so we can start preparing your delivery.'
+  ].join('\n');
 
   if (order.awaitingDeliveryFee || order.deliveryStatus === 'delivery_review_needed') {
     conversation.stageState = {};
     return {
-      reply: `${t(client, 'PAYMENT_ORDER_CONFIRMED', { trackingCode: publicOrderCode(order) })}\n\n${t(client, 'CONFIRM_OUTSIDE_ADDIS')}`,
+      reply: `${paymentReadyText}\n\n${t(client, 'CONFIRM_OUTSIDE_ADDIS')}`,
       buttons: [
-        [{ text: 'Track Order', callback_data: 'productflow:track_order' }],
         [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
       ],
       stage: 'completed'
@@ -2510,9 +2676,8 @@ async function continueToPayment(client, conversation, order) {
   if (!validPaymentOptions(client).length) {
     conversation.stageState = {};
     return {
-      reply: `${t(client, 'PAYMENT_ORDER_CONFIRMED', { trackingCode: publicOrderCode(order) })}\n\n${t(client, 'PAYMENT_NO_ACCOUNTS')}`,
+      reply: `${paymentReadyText}\n\n${t(client, 'PAYMENT_NO_ACCOUNTS')}`,
       buttons: [
-        [{ text: 'Track Order', callback_data: 'productflow:track_order' }],
         [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
       ],
       stage: 'completed'
@@ -2523,11 +2688,10 @@ async function continueToPayment(client, conversation, order) {
   conversation.stageState = { stage: 'awaiting_payment_proof', orderId: order.id };
 
   return {
-    reply: `${t(client, 'PAYMENT_ORDER_CONFIRMED', { trackingCode: publicOrderCode(order) })}\n\n${paymentInstructionsText(client, order)}`,
+    reply: `${paymentReadyText}\n\n${paymentInstructionsText(client, order)}`,
     buttons: [
       ...paymentCopyButtons(client),
       [{ text: 'Submit Payment Proof', callback_data: 'productflow:payment_proof' }],
-      [{ text: 'Track Order', callback_data: 'productflow:track_order' }],
       [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
     ],
     stage: 'awaiting_payment_proof'
@@ -2605,7 +2769,8 @@ async function handleConfirmOrder(data, client, conversation, orderId) {
 
   try {
     const ownerLines = [
-      'New Telegram order confirmed',
+      'New Telegram order details submitted',
+      'Payment is still pending.',
       `Order: ${order.id}`,
       `Product: ${order.productName}${order.productCode ? ` (${order.productCode})` : ''}`,
       `Quantity: ${order.quantity}`,
@@ -3215,11 +3380,17 @@ async function notifyOwnerPaymentProof(data, client, order, proof, ctx, proofKin
 async function notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, status = 'verified') {
   const ownerChatId = privateOwnerChatId(client);
   const success = status === 'verified';
+  const product = activeProducts(client).find(item => item.id === order?.productId || (order?.productCode && item.code === order.productCode));
+  const amountText = result?.amount || order?.total || 0;
   const details = [
     '<b>SprintSales Automation</b>',
     `<b>Business:</b> ${client.businessName || client.id}`,
     '',
-    success ? '<b>Payment automatically verified</b>' : '<b>Payment proof blocked</b>',
+    success ? '<b>Payment automatically verified</b>' : '<b>Payment could not be verified automatically</b>',
+    success
+      ? `${amountText} Birr was automatically verified for the purchase below. Please double-check the deposit in your bank/wallet before delivery.`
+      : 'The shopper submitted payment information, but the system could not verify it safely. Please review the order and wait for the shopper to resend correct payment details if needed.',
+    '',
     `Order: ${publicOrderCode(order)} (${order.id})`,
     `Product: ${[order.productName, order.productCode].filter(Boolean).join(' | ')}`,
     order.quantity ? `Quantity: ${order.quantity}` : '',
@@ -3227,20 +3398,42 @@ async function notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, res
     order.selectedColor ? `Color: ${order.selectedColor}` : '',
     order.selectedOption ? `Option: ${order.selectedOption}` : '',
     `Expected total: ${order.total || 0} Birr`,
-    result?.amount ? `Verified amount: ${result.amount} Birr` : '',
+    result?.amount ? `Automatically verified amount: ${result.amount} Birr` : '',
     result?.reference ? `Transaction/ref: ${result.reference}` : proof?.extracted?.transactionId ? `Transaction/ref: ${proof.extracted.transactionId}` : '',
     result?.bank ? `Provider: ${String(result.bank).toUpperCase()}` : '',
-    result?.verifyRequestId ? `Verify.et request: ${result.verifyRequestId}` : '',
     '',
     `Customer: ${order.customerName || proof.customerName || 'Customer'}`,
     order.phone ? `Phone: ${order.phone}` : '',
     order.deliveryLocation ? `Address: ${order.deliveryLocation}` : '',
-    result?.reason ? `Decision: ${result.reason}` : ''
+    !success && result?.reason ? `Reason: ${result.reason}` : ''
   ].filter(Boolean).join('\n');
+
+  if (ownerChatId && deps.sendPlatformAdminBotMessage) {
+    try {
+      await deps.sendPlatformAdminBotMessage(data, ownerChatId, details.replace(/<[^>]+>/g, ''));
+      const imagePath = productImagePath(product || {});
+      if (imagePath && ctx?.telegram) {
+        const photo = /^https?:\/\//i.test(String(imagePath)) ? imagePath : Input.fromLocalFile(imagePath);
+        await ctx.telegram.sendPhoto(ownerChatId, photo, {
+          caption: `Product for delivery: ${[order.productName, order.productCode].filter(Boolean).join(' | ')}`
+        }).catch(() => null);
+      }
+      return true;
+    } catch (error) {
+      console.warn(`SprintSales admin bot auto-payment notify failed for ${client.businessName}:`, error.message);
+    }
+  }
 
   if (ownerChatId && ctx?.telegram) {
     try {
       await ctx.telegram.sendMessage(ownerChatId, details, { parse_mode: 'HTML' });
+      const imagePath = productImagePath(product || {});
+      if (imagePath) {
+        const photo = /^https?:\/\//i.test(String(imagePath)) ? imagePath : Input.fromLocalFile(imagePath);
+        await ctx.telegram.sendPhoto(ownerChatId, photo, {
+          caption: `Product for delivery: ${[order.productName, order.productCode].filter(Boolean).join(' | ')}`
+        }).catch(() => null);
+      }
       return true;
     } catch (error) {
       console.warn(`Automatic payment owner notify failed for ${client.businessName}:`, error.message);
@@ -3256,7 +3449,7 @@ async function finalizeVerifiedPayment(data, client, conversation, order, proof,
   order.paymentStatus = 'paid';
   order.paymentVerifiedAt = verifiedAt;
   order.ownerVerifiedAt = order.ownerVerifiedAt || '';
-  order.paymentVerifiedBy = result.source || 'verify.et';
+  order.paymentVerifiedBy = result.source || 'automatic';
   order.paymentVerifiedByChatId = '';
   order.paymentAutoVerified = true;
   order.paymentVerificationReference = result.reference || proof?.extracted?.transactionId || '';
@@ -3273,8 +3466,8 @@ async function finalizeVerifiedPayment(data, client, conversation, order, proof,
   if (proof) {
     proof.status = 'verified';
     proof.verifiedAt = verifiedAt;
-    proof.verifiedBy = 'verify.et';
-    proof.verificationNote = result.reason || 'Payment automatically verified by Verify.et.';
+    proof.verifiedBy = 'automatic';
+    proof.verificationNote = result.reason || 'Payment automatically verified.';
     proof.extracted ||= {};
     if (result.reference) proof.extracted.transactionId = result.reference;
     if (result.amount) proof.extracted.amount = String(result.amount);
@@ -3294,27 +3487,38 @@ async function finalizeVerifiedPayment(data, client, conversation, order, proof,
   conversation.stage = 'completed';
 
   if (options.notifyCustomer !== false && order.telegramChatId && ctx?.telegram) {
+    const product = activeProducts(client).find(item => item.id === order?.productId || (order?.productCode && item.code === order.productCode));
     const productHint = [order.productName, order.selectedSize, order.selectedColor, order.selectedOption].filter(Boolean).join(' ');
+    const totalPaid = order.total || result.amount || '';
     const message = [
+      '✅ Payment verified successfully',
+      '',
       t(client, 'PAYMENT_CONFIRMED', { customerName: order.customerName || 'dear customer' }),
       '',
-      'Your payment was verified automatically.',
+      totalPaid ? `Amount paid: ${totalPaid} Birr` : '',
       t(client, 'PAYMENT_TRACKING_CODE', { trackingCode: publicOrderCode(order) }),
       productHint ? t(client, 'PAYMENT_PREPARING', { productHint }) : t(client, 'PAYMENT_PREPARING', { productHint: 'your order' }),
+      'Your purchase is complete. The shop will prepare your product for delivery and may contact you if any extra detail is needed.',
       '',
       t(client, 'PAYMENT_THANK_YOU', { businessName: client.businessName }),
       '',
       deliveryProgressText(order, client)
-    ].join('\n');
-    await ctx.telegram.sendMessage(order.telegramChatId, message, {
-      reply_markup: {
+    ].filter(Boolean).join('\n');
+    const replyMarkup = {
         inline_keyboard: localizeButtons(client, [
           trackingCopyButton(order),
           [{ text: 'Track Delivery', callback_data: 'productflow:track_order' }],
           [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
         ])
-      }
-    }).catch(error => {
+      };
+    const imagePath = productImagePath(product || {});
+    const sendPromise = imagePath
+      ? ctx.telegram.sendPhoto(order.telegramChatId, /^https?:\/\//i.test(String(imagePath)) ? imagePath : Input.fromLocalFile(imagePath), {
+          caption: message,
+          reply_markup: replyMarkup
+        })
+      : ctx.telegram.sendMessage(order.telegramChatId, message, { reply_markup: replyMarkup });
+    await sendPromise.catch(error => {
       console.warn('Automatic customer payment confirmation failed:', error.message);
     });
   }
@@ -3325,7 +3529,7 @@ async function tryAutomaticPaymentVerification(data, client, conversation, order
   if (!verifier?.verifyPaymentProof) return { action: 'manual_review', reason: 'Payment verifier is not configured.' };
   const result = await verifier.verifyPaymentProof({ data, client, order, proof });
   if (result.action === 'verified') {
-    await finalizeVerifiedPayment(data, client, conversation, order, proof, ctx, { ...result, source: 'verify.et' }, options);
+    await finalizeVerifiedPayment(data, client, conversation, order, proof, ctx, { ...result, source: 'automatic' }, options);
     await notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, 'verified');
     return result;
   }
@@ -3352,7 +3556,7 @@ async function tryAutomaticPaymentVerification(data, client, conversation, order
   if (result.action === 'pending') {
     const updatedAt = new Date().toISOString();
     proof.status = 'auto_verification_pending';
-    proof.verificationNote = result.reason || 'Verify.et is still processing this reference.';
+    proof.verificationNote = result.reason || 'Automatic payment verification is still processing this reference.';
     proof.updatedAt = updatedAt;
     order.paymentStatus = 'pending_verification';
     order.awaitingPaymentProof = false;
@@ -3385,7 +3589,6 @@ const automaticPaymentRetryText = (client, result = {}) => {
         'Please paste the full bank/Telebirr SMS or the exact transaction/reference number again.',
         'Make sure the amount and receiver account match the payment details above.'
       ];
-  if (reason && !/api key/i.test(reason)) lines.push('', `Reason: ${reason}`);
   return lines.join('\n');
 };
 
@@ -3417,6 +3620,7 @@ async function handleAutomaticPaymentReviewNeeded(data, client, conversation, or
       30
     ).catch(() => null);
   }
+  await notifyOwnerAutoPaymentResult(data, client, order, proof, ctx, result, 'failed').catch(() => null);
 
   return {
     handled: true,
@@ -3479,16 +3683,21 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
   if (automaticPaymentSelected(client)) {
     const autoResult = await tryAutomaticPaymentVerification(data, client, conversation, order, proof, ctx, { notifyCustomer: false });
     if (autoResult.action === 'verified') {
+      const productHint = [order.productName, order.selectedSize, order.selectedColor, order.selectedOption].filter(Boolean).join(' ');
       return {
         handled: true,
         reply: [
+          '✅ Payment verified successfully',
+          '',
           t(client, 'PAYMENT_CONFIRMED', { customerName: order.customerName || 'dear customer' }),
           '',
-          'Your payment was verified automatically.',
+          order.total ? `Amount paid: ${order.total} Birr` : '',
           t(client, 'PAYMENT_TRACKING_CODE', { trackingCode: publicOrderCode(order) }),
+          productHint ? t(client, 'PAYMENT_PREPARING', { productHint }) : '',
+          'Your purchase is complete. The shop will prepare your product for delivery and may contact you if any extra detail is needed.',
           '',
           t(client, 'PAYMENT_THANK_YOU', { businessName: client.businessName })
-        ].join('\n'),
+        ].filter(Boolean).join('\n'),
         buttons: [
           trackingCopyButton(order),
           [{ text: 'Track Delivery', callback_data: 'productflow:track_order' }],
@@ -3513,7 +3722,6 @@ async function handlePaymentProofText(data, client, conversation, ctx, text) {
         handled: true,
         reply: automaticPaymentPendingText(client, autoResult),
         buttons: [
-          [{ text: 'Track Delivery', callback_data: 'productflow:track_order' }],
           [{ text: 'Submit Payment Proof', callback_data: 'productflow:payment_proof' }],
           [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
         ],
@@ -3945,9 +4153,11 @@ function orderMatchesTrackingQuery(order, query) {
   const id = String(order?.id || '');
   const phone = normalizeOrderLookup(order?.phone).replace(/\D/g, '');
   const productCode = normalizeOrderLookup(order?.productCode);
+  const publicCode = normalizeOrderLookup(publicOrderCode(order));
   return id.toLowerCase() === String(query || '').trim().toLowerCase() ||
     normalizeOrderLookup(id) === normalizedQuery ||
     normalizeOrderLookup(id.slice(-8)) === normalizedQuery ||
+    (publicCode && publicCode === normalizedQuery) ||
     (queryPhone && phone === queryPhone) ||
     (productCode && productCode === normalizedQuery);
 }
@@ -3972,8 +4182,13 @@ function trackingPaymentLabel(order, client = {}) {
     paid: t(client, 'PAYMENT_STATUS_PAID', {}, 'Paid'),
     confirmed: t(client, 'PAYMENT_STATUS_PAID', {}, 'Confirmed'),
     pending_verification: t(client, 'PAYMENT_STATUS_REVIEW', {}, 'Payment proof under review'),
+    payment_proof_under_review: t(client, 'PAYMENT_STATUS_REVIEW', {}, 'Payment proof under review'),
+    payment_verification_pending: t(client, 'PAYMENT_STATUS_REVIEW', {}, 'Payment verification pending'),
+    waiting_for_payment_proof: t(client, 'PAYMENT_STATUS_WAITING', {}, 'Waiting for payment proof'),
+    not_requested: t(client, 'PAYMENT_STATUS_WAITING', {}, 'Waiting for payment details'),
     awaiting_screenshot: t(client, 'PAYMENT_STATUS_WAITING', {}, 'Waiting for payment proof'),
     rejected: t(client, 'PAYMENT_STATUS_REJECTED', {}, 'Payment proof rejected'),
+    payment_proof_duplicate: t(client, 'PAYMENT_STATUS_REJECTED', {}, 'Payment reference already used'),
     refunded: t(client, 'PAYMENT_STATUS_REFUNDED', {}, 'Refunded')
   }[status] || status.replace(/[-_]/g, ' ');
 }
@@ -4019,11 +4234,7 @@ function findOwnedTrackedOrderForText(data, client, conversation, text) {
   if (!looksLikeCode) return null;
   return (data?.orders || []).find(order =>
     order.clientId === client.id &&
-    (
-      String(order.id || '').toLowerCase() === raw.toLowerCase() ||
-      normalizeOrderLookup(order.id) === normalized ||
-      normalizeOrderLookup(String(order.id || '').slice(-8)) === normalized
-    ) &&
+    orderMatchesTrackingQuery(order, raw) &&
     order.telegramChatId &&
     chatIdString(order.telegramChatId) === chatIdString(conversation.telegramChatId)
   ) || null;
@@ -4323,22 +4534,29 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
 
     switch (action) {
       case 'explore':
-        result = await handleExplore(client, conversation);
+        result = miniappEnabled(client) ? openShopResult(client, conversation) : await handleExplore(client, conversation);
         break;
 
       case 'category':
-        result = await handleCategoryBrowse(client, conversation, param);
+        result = miniappEnabled(client) ? openShopResult(client, conversation) : await handleCategoryBrowse(client, conversation, param);
         break;
 
       case 'subcategory':
-        result = await handleSubcategoryBrowse(client, conversation, param);
+        result = miniappEnabled(client) ? openShopResult(client, conversation) : await handleSubcategoryBrowse(client, conversation, param);
         break;
 
       case 'gallery':
-        result = await handleProductGallery(client, conversation, param, ctx);
+        result = miniappEnabled(client) ? openShopResult(client, conversation) : await handleProductGallery(client, conversation, param, ctx);
         break;
 
       case 'search':
+        if (miniappEnabled(client)) {
+          conversation.stage = 'greeting';
+          conversation.conversationState = 'welcome';
+          conversation.stageState = {};
+          result = openShopResult(client, conversation);
+          break;
+        }
         conversation.stage = 'product_search';
         conversation.conversationState = 'shopping_mode';
         conversation.stageState = { stage: 'product_search' };
@@ -4384,6 +4602,10 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
 
       case 'next':
       case 'prev': {
+        if (miniappEnabled(client)) {
+          result = openShopResult(client, conversation);
+          break;
+        }
         await ctx.deleteMessage?.().catch(() => null);
         const [catName, pageStr] = param.split(':');
         const itemIndex = Math.max(0, parseInt(pageStr, 10) || 0);
@@ -4395,6 +4617,10 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
       }
 
       case 'page': {
+        if (miniappEnabled(client)) {
+          result = openShopResult(client, conversation);
+          break;
+        }
         await ctx.deleteMessage?.().catch(() => null);
         const [categorySlug, subcategorySlug, pageStr] = param.split(':');
         const page = Math.max(0, parseInt(pageStr, 10) || 0);
@@ -4412,6 +4638,10 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
       }
 
       case 'search_page': {
+        if (miniappEnabled(client)) {
+          result = openShopResult(client, conversation);
+          break;
+        }
         await ctx.deleteMessage?.().catch(() => null);
         const query = conversation.stageState?.searchQuery || '';
         const page = Math.max(0, parseInt(param, 10) || 0);
@@ -4427,7 +4657,7 @@ async function handleProductflowCallback(data, client, conversation, ctx, rawCal
       }
 
       case 'order':
-        result = await handleOrder(data, client, conversation, param);
+        result = miniappEnabled(client) ? openShopResult(client, conversation) : await handleOrder(data, client, conversation, param);
         break;
 
       case 'spec':
@@ -4701,6 +4931,12 @@ async function handleProductflowText(data, client, conversation, ctx, text) {
     return localizeResult(client, await handleSupportText(data, client, conversation, text));
   }
   if (conversation.stage === 'product_search') {
+    if (miniappEnabled(client)) {
+      conversation.stage = 'greeting';
+      conversation.stageState = {};
+      conversation.conversationState = 'welcome';
+      return localizeResult(client, openShopResult(client, conversation));
+    }
     const result = await productSearchResult(client, conversation, text, 0);
     if (result) return localizeResult(client, result);
     return localizeResult(client, {
@@ -4714,6 +4950,12 @@ async function handleProductflowText(data, client, conversation, ctx, text) {
     });
   }
   if (looksLikeProductSearchText(text)) {
+    if (miniappEnabled(client)) {
+      conversation.stage = 'greeting';
+      conversation.stageState = {};
+      conversation.conversationState = 'welcome';
+      return localizeResult(client, openShopResult(client, conversation));
+    }
     const result = await productSearchResult(client, conversation, text, 0);
     if (result) {
       conversation.stage = 'product_search';

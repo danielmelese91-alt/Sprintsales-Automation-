@@ -15,7 +15,9 @@ export const identityValues = item => [
   item?.telegramChatId,
   item?.phone,
   item?.username,
-  item?.conversationId
+  item?.conversationId,
+  item?.shopperSessionId,
+  ...(Array.isArray(item?.shopperSessionIds) ? item.shopperSessionIds : [])
 ].filter(Boolean).map(value => String(value).toLowerCase());
 
 export const sameShopper = (a, b) => {

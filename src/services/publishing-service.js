@@ -18,7 +18,18 @@ export const createPublishingService = (deps = {}) => {
     fallbackProductCaption
   } = deps;
 
+  const isCakeProduct = product => /cake|bakery|pastr|dessert|birthday|wedding|fondant|bento|cupcake/.test([
+    product?.category,
+    product?.subcategory,
+    product?.name,
+    product?.productType
+  ].filter(Boolean).join(' ').toLowerCase());
+
   const watermarkedCandidate = product => {
+    if (isCakeProduct(product)) {
+      const original = product.imageOriginalPath || product.originalImagePath || product.publicImagePath || product.imagePath || product.imageUrl || '';
+      if (original) return original;
+    }
     const direct = product.publicImagePath || product.watermarkedImagePath || product.imageWatermarked || '';
     if (direct) return direct;
     const imagePath = product.imagePath || '';

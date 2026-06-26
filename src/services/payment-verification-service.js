@@ -52,6 +52,13 @@ const namesLikelyMatch = (expected, actual) => {
   return expectedTokens.some(token => actualTokens.includes(token));
 };
 
+const firstNameLikelyMatch = (expected, actual) => {
+  const expectedTokens = normalizeName(expected);
+  const actualTokens = normalizeName(actual);
+  if (!expectedTokens.length || !actualTokens.length) return true;
+  return actualTokens.includes(expectedTokens[0]);
+};
+
 const pick = (...values) => {
   for (const value of values) {
     if (value !== undefined && value !== null && String(value).trim() !== '') return value;
@@ -83,6 +90,13 @@ const providerBank = value => {
 
 const methodBank = method => providerBank(method);
 
+const bankFromReference = value => {
+  const ref = normalizeReference(value);
+  if (/^FT[A-Z0-9]{8,}$/.test(ref)) return 'cbe';
+  if (/^DF[A-Z0-9]{7,}$/.test(ref)) return 'telebirr';
+  return '';
+};
+
 const referenceFromText = text => {
   const value = String(text || '');
   const explicitWithSeparator = value.match(/\b(?:txn|trx|transaction|ref|reference|receipt|id)\s*(?:no\.?|number|id)?\s*[:#-]\s*([A-Z0-9-]{6,})\b/i);
@@ -111,7 +125,7 @@ const proofProviderBank = proof => providerBank([
   proof?.provider,
   proof?.manualSmsText,
   proof?.caption
-].filter(Boolean).join(' '));
+].filter(Boolean).join(' ')) || bankFromReference(proofReference(proof));
 
 const candidateAccounts = (client, proof) => {
   const options = Array.isArray(client?.settings?.paymentOptions) ? client.settings.paymentOptions : [];
@@ -235,19 +249,59 @@ const summarizeVerification = (body, headers = {}) => {
     bankSpecific.receiverPhone,
     bankSpecific.receiverNumber
   ) || '');
+  const payerAccount = String(pick(
+    verification.payerNumber,
+    verification.payerPhone,
+    verification.senderPhone,
+    verification.senderAccount,
+    result.payerNumber,
+    result.payerPhone,
+    result.senderPhone,
+    result.senderAccount,
+    bankSpecific.senderAccount,
+    bankSpecific.payerTelebirrNo,
+    bankSpecific.payerPhone,
+    bankSpecific.payerAccountNo
+  ) || '');
   const receiverName = String(
     nested(verification, ['receiverName', 'creditedParty', 'receiver.name']) ||
     nested(result, ['receiverName', 'creditedParty', 'receiver.name']) ||
     pick(bankSpecific.receiverName, bankSpecific.creditedPartyName) ||
     ''
   );
+  const payerName = String(
+    nested(verification, ['payerName', 'senderName', 'payer.name']) ||
+    nested(result, ['payerName', 'senderName', 'payer.name']) ||
+    pick(bankSpecific.payerName, bankSpecific.senderName) ||
+    ''
+  );
+  const reference = normalizeReference(pick(
+    verification.referenceNumber,
+    verification.reference,
+    verification.transactionNumber,
+    verification.receiptNumber,
+    result.referenceNumber,
+    result.reference,
+    result.transactionNumber,
+    result.receiptNumber,
+    result.invoiceNo,
+    bankSpecific.receiptNo,
+    bankSpecific.reference,
+    bankSpecific.receiptNumber,
+    bankSpecific.transactionNumber
+  ));
   const confirmationHistory = verification.confirmationHistory || result.confirmationHistory || bankSpecific.confirmationHistory || null;
   const row = {
     ...verification,
     ...result,
     amount,
+    reference,
+    payerName,
+    payerAccount,
     receiverName,
     receiverAccount,
+    receiverLast4: normalizeDigits(receiverAccount).slice(-4),
+    payerLast4: normalizeDigits(payerAccount).slice(-4),
     confirmationHistory,
     settlementAccountMatch: verification.settlementAccountMatch || result.settlementAccountMatch || bankSpecific.settlementAccountMatch || body?.data?.settlementAccountMatch || null
   };
@@ -276,6 +330,23 @@ const isProcessingState = value => ['queued', 'pending', 'processing', 'in_progr
 
 const requestIdFromBody = body => body?.requestId || body?.verification?.requestId || body?.data?.requestId || '';
 
+const receiverLast4FromRow = row => {
+  const explicit = pick(row.receiverLast4, row.creditedPartyLast4);
+  const explicitDigits = normalizeDigits(explicit);
+  if (explicitDigits.length >= 4) return explicitDigits.slice(-4);
+  return normalizeDigits(row.receiverAccount || row.creditedPartyNumber || row.receiverPhone).slice(-4);
+};
+
+const receiverMatchesCandidate = (row, candidate, settlement) => {
+  if (settlement && settlement.matched === true) return true;
+  if (settlement && settlement.matched === false) return false;
+  const expectedDigits = normalizeDigits(candidate.accountNumber);
+  if (!expectedDigits) return false;
+  const returnedLast4 = receiverLast4FromRow(row);
+  if (!returnedLast4) return false;
+  return expectedDigits.endsWith(returnedLast4);
+};
+
 const readJsonResponse = async response => {
   if (typeof response.text === 'function') {
     const text = await response.text();
@@ -293,7 +364,6 @@ const alreadyUsedReference = (data, clientId, reference) => {
   const ref = normalizeReference(reference);
   if (!ref) return null;
   return (data.paymentVerificationReferences || []).find(item =>
-    item.clientId === clientId &&
     normalizeReference(item.reference) === ref &&
     item.status === 'verified'
   ) || null;
@@ -310,12 +380,20 @@ const recordReferenceUse = (data, { client, order, proof, reference, bank, verif
     proofId: proof?.id || '',
     reference: ref,
     bank: bank || '',
-    amount: String(verification?.amount || order?.total || ''),
+    amount: String(verification?.amount || expectedPaymentAmount(order) || order?.total || ''),
     verifyRequestId: verification?.requestId || '',
     status: 'verified',
     createdAt: new Date().toISOString()
   });
 };
+
+const expectedPaymentAmount = order => moneyNumber(
+  order?.paymentDueNow ||
+  order?.paymentRequiredAmount ||
+  order?.amountDueNow ||
+  order?.depositAmount ||
+  order?.total
+);
 
 export const normalizePaymentVerificationMode = value => (
   String(value || '').toLowerCase() === 'automatic' ? 'automatic' : 'manual'
@@ -346,7 +424,7 @@ export function createPaymentVerificationService(deps = {}) {
     const body = await readJsonResponse(response);
     const headers = headersToObject(response.headers);
     if (!response.ok && response.status !== 202) {
-      const message = body?.error?.message || body?.message || body?.error || `Verify.et request failed (${response.status})`;
+      const message = body?.error?.message || body?.message || body?.error || `Payment verification request failed (${response.status})`;
       const error = new Error(message);
       error.status = response.status;
       error.body = body;
@@ -391,45 +469,46 @@ export function createPaymentVerificationService(deps = {}) {
     return body;
   };
 
-  const evaluate = ({ body, candidate, order }) => {
+  const evaluate = ({ body, candidate, order, reference }) => {
     const summary = summarizeVerification(body);
     const row = summary.row || {};
     const amount = moneyNumber(row.amount || body?.data?.amount);
-    const expected = moneyNumber(order?.total);
+    const expected = expectedPaymentAmount(order);
     const settlement = row.settlementAccountMatch || body?.data?.settlementAccountMatch || null;
     const confirmedBefore = row.confirmationHistory?.confirmedBefore === true ||
       row.confirmationHistory?.isFirstConfirmation === false;
 
     if (confirmedBefore) {
-      return { action: 'duplicate', reason: 'Verify.et says this reference was confirmed before.', summary, amount };
+      return { action: 'duplicate', reason: 'This payment reference was already confirmed before.', summary, amount };
     }
     if (isProcessingState(processingState(summary))) {
-      return { action: 'pending', reason: 'Verify.et is still processing this reference.', summary, amount };
+      return { action: 'pending', reason: 'Automatic payment verification is still processing this reference.', summary, amount };
     }
     if (!summary.verified) {
-      return { action: 'manual_review', reason: 'Verify.et did not return a successful verification.', summary, amount };
+      return { action: 'manual_review', reason: 'Automatic payment verification did not return a successful result.', summary, amount };
+    }
+    if (row.reference && normalizeReference(row.reference) !== normalizeReference(reference)) {
+      return { action: 'manual_review', reason: 'Automatic payment verification returned a different transaction reference than the submitted proof.', summary, amount };
     }
     if (expected && amount && Math.abs(expected - amount) > 0.01) {
-      return { action: 'manual_review', reason: `Amount mismatch. Expected ${expected} ETB but Verify.et returned ${amount} ETB.`, summary, amount };
+      return { action: 'manual_review', reason: `Amount mismatch. Expected ${expected} ETB but automatic verification returned ${amount} ETB.`, summary, amount };
     }
     if (expected && !amount) {
-      return { action: 'manual_review', reason: 'Verify.et did not return an amount to compare with the order total.', summary, amount };
+      return { action: 'manual_review', reason: 'Automatic payment verification did not return an amount to compare with the order total.', summary, amount };
     }
     if (settlement && settlement.matched === false) {
       return { action: 'manual_review', reason: `Receiver account did not match: ${settlement.reason || 'account mismatch'}.`, summary, amount };
     }
-    if (!settlement) {
-      const receiverDigits = normalizeDigits(row.receiverAccount);
-      const expectedDigits = normalizeDigits(candidate.accountNumber);
-      const suffixOk = receiverDigits && expectedDigits && expectedDigits.endsWith(receiverDigits.replace(/\*/g, '').slice(-4));
-      if (row.receiverAccount && !suffixOk) {
-        return { action: 'manual_review', reason: 'Receiver account could not be matched safely.', summary, amount };
-      }
+    if (!receiverMatchesCandidate(row, candidate, settlement)) {
+      return { action: 'manual_review', reason: 'Receiver account could not be matched safely.', summary, amount };
     }
-    if (row.receiverName && candidate.accountName && !namesLikelyMatch(candidate.accountName, row.receiverName)) {
-      return { action: 'manual_review', reason: `Receiver name mismatch. Expected ${candidate.accountName}; Verify.et returned ${row.receiverName}.`, summary, amount };
+    const nameMatches = ['telebirr', 'mpesa', 'cbebirr'].includes(candidate.bank)
+      ? firstNameLikelyMatch(candidate.accountName, row.receiverName)
+      : namesLikelyMatch(candidate.accountName, row.receiverName);
+    if (row.receiverName && candidate.accountName && !nameMatches) {
+      return { action: 'manual_review', reason: `Receiver name mismatch. Expected ${candidate.accountName}; automatic verification returned ${row.receiverName}.`, summary, amount };
     }
-    return { action: 'verified', reason: 'Payment verified automatically by Verify.et.', summary, amount };
+    return { action: 'verified', reason: 'Payment verified automatically.', summary, amount };
   };
 
   const verifyPaymentProof = async ({ data, client, order, proof }) => {
@@ -450,7 +529,7 @@ export function createPaymentVerificationService(deps = {}) {
     }
     if (!configured()) {
       proof.autoVerification.status = 'skipped';
-      proof.autoVerification.reason = 'Verify.et API key is not configured on the server.';
+      proof.autoVerification.reason = 'Automatic payment verification is not configured on the server.';
       return { action: 'manual_review', reason: proof.autoVerification.reason };
     }
     if (!order) {
@@ -519,7 +598,7 @@ export function createPaymentVerificationService(deps = {}) {
           payload,
           idempotencyKey: `sprintsales-${client.id}-${proof.id}-${candidate.bank}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 120)
         });
-        const decision = evaluate({ body, candidate, order });
+        const decision = evaluate({ body, candidate, order, reference });
         attempt.status = decision.action;
         attempt.reason = decision.reason;
         attempt.verifyRequestId = decision.summary?.requestId || '';

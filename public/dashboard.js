@@ -124,7 +124,7 @@ function renderOverviewTab(c,isActive){
 function renderProfileTab(c){
   var d=client||{}, cs=d.settings||{}, bp=cs.businessProfile||{};
   var isActive=clientCanUseFeatures(d), isPending=!isActive;
-  var bizTypes=[['fashion','Fashion / Boutique'],['electronics','Electronics'],['beauty','Beauty / Cosmetics'],['home','Home / Kitchen'],['furniture','Furniture'],['retail','General Retail']];
+  var bizTypes=[['fashion','Fashion / Boutique'],['electronics','Electronics'],['beauty','Beauty / Cosmetics'],['home','Home / Kitchen'],['furniture','Furniture'],['cakes','Cakes / Bakery'],['retail','General Retail']];
   var selectedRetail=bp.retailType||bp.businessType||d.businessTypeLabel||'';
   var bizOpts=bizTypes.map(function(bt){return'<option value="'+bt[0]+'"'+(selectedRetail===bt[0]?' selected':'')+'>'+bt[1]+'</option>'}).join('');
   var cityOpts=ethiopianCityOptions(cs.city||'');
@@ -151,6 +151,9 @@ function renderProfileTab(c){
   '<div><label class="text-xs text-slate-400 block mb-1">Email</label><input id="bp-email" class="field" type="email" value="'+esc(d.email||'')+'" placeholder="owner@example.com"'+(isPending?' disabled':'')+'><p class="text-xs text-slate-500 mt-0.5">Also used for login. Confirm changes with the password for this exact email.</p></div>'+
   '<div><label class="text-xs text-slate-400 block mb-1">City</label><select id="bp-city" class="field"'+(isPending?' disabled':'')+'>'+cityOpts+'</select></div>'+
   '<div><label class="text-xs text-slate-400 block mb-1">Specific Address</label><input id="bp-address" class="field" value="'+esc(bp.address||'')+'" placeholder="Bole Medhanialem, near..."'+(isPending?' disabled':'')+'></div>'+
+  '<div class="md:col-span-2"><label class="text-xs text-slate-400 block mb-1">Exact Google Maps Link</label><input id="bp-map-url" class="field" value="'+esc(bp.mapUrl||'')+'" placeholder="Paste Google Maps share link for the shop pin"'+(isPending?' disabled':'')+'><p class="text-xs text-slate-500 mt-1">Used by the MiniApp address button. If the link contains coordinates, SprintSales also uses them for the Telegram map pin.</p></div>'+
+  '<div><label class="text-xs text-slate-400 block mb-1">Map Latitude</label><input id="bp-map-lat" class="field" value="'+esc(bp.mapLatitude||((cs.delivery||{}).shop_latitude||''))+'" placeholder="Example: 8.9806"'+(isPending?' disabled':'')+'></div>'+
+  '<div><label class="text-xs text-slate-400 block mb-1">Map Longitude</label><input id="bp-map-lng" class="field" value="'+esc(bp.mapLongitude||((cs.delivery||{}).shop_longitude||''))+'" placeholder="Example: 38.7578"'+(isPending?' disabled':'')+'></div>'+
   '<div class="md:col-span-2"><div class="flex items-center justify-between gap-2 mb-2"><label class="text-xs text-slate-400 block">Branches / Multiple Addresses</label><button type="button" class="btn btn-ghost text-xs" onclick="addBranchRow()"'+(isPending?' disabled':'')+'><i class="fas fa-plus"></i> Add location</button></div><div id="bp-branches-box" class="space-y-2">'+branchRowsHtml(cs.businessBranches,isPending)+'</div><p class="text-xs text-slate-500 mt-1">Up to 3 branches. Choose city from the list, then type the exact local address.</p></div>'+
   '</div></div>'+
 
@@ -235,6 +238,9 @@ async function saveBusinessProfile(){
     businessFirstTimeWelcome:limitWords((document.getElementById('bp-first-welcome')||{}).value||'',160),
     businessReferenceKnowledge:limitWords((document.getElementById('bp-reference-knowledge')||{}).value||'',1000),
     businessAddress:document.getElementById('bp-address').value.trim(),
+    businessMapUrl:(document.getElementById('bp-map-url')||{}).value.trim(),
+    shopLatitude:(document.getElementById('bp-map-lat')||{}).value.trim(),
+    shopLongitude:(document.getElementById('bp-map-lng')||{}).value.trim(),
     city:document.getElementById('bp-city').value.trim(),
     businessBranches:collectBranches(),
     businessLogoUrl:document.getElementById('bp-logo').value.trim(),
@@ -255,6 +261,10 @@ async function saveBusinessProfile(){
     client.settings.businessProfile.firstTimeWelcomeMessage=body.businessFirstTimeWelcome;
     client.settings.businessProfile.referenceKnowledge=body.businessReferenceKnowledge;
     client.settings.businessProfile.address=body.businessAddress;
+    client.settings.businessProfile.mapUrl=body.businessMapUrl;
+    client.settings.businessProfile.mapLatitude=body.shopLatitude;
+    client.settings.businessProfile.mapLongitude=body.shopLongitude;
+    client.settings.delivery={...(client.settings.delivery||{}),shop_latitude:body.shopLatitude||((client.settings.delivery||{}).shop_latitude||null),shop_longitude:body.shopLongitude||((client.settings.delivery||{}).shop_longitude||null)};
     client.settings.city=body.city;
     client.settings.businessBranches=body.businessBranches;
     client.settings.businessLogoUrl=body.businessLogoUrl;
@@ -286,6 +296,10 @@ async function saveBusinessProfile(){
           client.settings.businessProfile.firstTimeWelcomeMessage=body.businessFirstTimeWelcome;
           client.settings.businessProfile.referenceKnowledge=body.businessReferenceKnowledge;
           client.settings.businessProfile.address=body.businessAddress;
+          client.settings.businessProfile.mapUrl=body.businessMapUrl;
+          client.settings.businessProfile.mapLatitude=body.shopLatitude;
+          client.settings.businessProfile.mapLongitude=body.shopLongitude;
+          client.settings.delivery={...(client.settings.delivery||{}),shop_latitude:body.shopLatitude||((client.settings.delivery||{}).shop_latitude||null),shop_longitude:body.shopLongitude||((client.settings.delivery||{}).shop_longitude||null)};
           client.settings.city=body.city;
           client.settings.businessBranches=body.businessBranches;
           client.settings.businessLogoUrl=body.businessLogoUrl;
@@ -400,7 +414,7 @@ function handleLogoDrop(event){
   uploadBusinessLogo();
 }
 
-function profileDraftFields(){return['bp-first-welcome','bp-reference-knowledge','bp-address','bp-telegram-link','bp-website','bp-social']}
+function profileDraftFields(){return['bp-first-welcome','bp-reference-knowledge','bp-address','bp-map-url','bp-map-lat','bp-map-lng','bp-telegram-link','bp-website','bp-social']}
 function saveProfileDraft(){try{var draft={branches:collectBranches()};profileDraftFields().forEach(function(id){var el=document.getElementById(id);if(el)draft[id]=el.value});localStorage.setItem(profileDraftKey,JSON.stringify(draft))}catch(_e){}}
 function restoreProfileDraft(){try{var raw=localStorage.getItem(profileDraftKey);if(!raw)return;var draft=JSON.parse(raw)||{};profileDraftFields().forEach(function(id){var el=document.getElementById(id);if(el&&draft[id]!==undefined)el.value=draft[id]});if(Array.isArray(draft.branches)){var box=document.getElementById('bp-branches-box');if(box)box.innerHTML=branchRowsHtml(draft.branches,false)}updateReferenceKnowledgeCount()}catch(_e){}}
 
@@ -421,7 +435,24 @@ function getDefaultCategoriesByType(rawType){
     return ['Kitchen Appliances','Cookware','Home Decor','Storage','Cleaning Products'];
   if(bt.includes('furniture'))
     return ['Sofas','Beds','Tables','Chairs','Cabinets','Office Furniture'];
+  if(bt.includes('cake')||bt.includes('bakery')||bt.includes('pastry')||bt.includes('dessert'))
+    return ['Birthday Cakes','Wedding Cakes','Occasion Cakes','Custom Cakes','Cupcakes & Mini Cakes','Pastries & Desserts','Cake Accessories'];
   return ['New Arrivals','Best Sellers','Discount Items','Accessories','Other Products'];
+}
+
+function clientIsCakeBusiness(settings){
+  settings=settings||{};
+  var profile=settings.businessProfile||{};
+  var text=[
+    settings.retailType,
+    settings.businessType,
+    settings.productsCategoryFilter,
+    profile.retailType,
+    profile.businessType,
+    profile.category,
+    (client||{}).businessTypeLabel
+  ].filter(Boolean).join(' ');
+  return /cake|bakery|pastry|dessert/i.test(text);
 }
 
 // â”€â”€ Get categories from client settings only â”€â”€
@@ -454,6 +485,57 @@ function iconForCategory(cat){
 function iconForSubcategory(cat,sub){
   var item=getCategoryTemplates().find(function(t){return t&&t.name===cat});
   return retailLabelIcon(sub,item&&item.subcategoryIcons&&item.subcategoryIcons[sub]?item.subcategoryIcons[sub]:'');
+}
+
+function categoryIconImageMap(){
+  var cs=(client||{}).settings||{};
+  return cs.categoryIconImages||cs.cakeTypeIconImages||{};
+}
+
+function categoryIconKey(label){
+  return String(label||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+}
+
+function categoryIconImageValue(label){
+  var map=categoryIconImageMap();
+  return map[label]||map[categoryIconKey(label)]||'';
+}
+
+function categoryIconImageInput(label){
+  var id='cat-icon-'+categoryIconKey(label);
+  return '<div class="rounded-lg border border-slate-700/70 bg-slate-900/40 p-3">'+
+    '<label class="text-xs text-slate-400 block mb-1">'+esc(label)+'</label>'+
+    '<input id="'+id+'" data-category-icon-label="'+esc(label)+'" class="field text-sm" value="'+esc(categoryIconImageValue(label))+'" placeholder="Paste image URL for this cake type">'+
+  '</div>';
+}
+
+function renderCakeTypeIconManager(labels){
+  if(!clientIsCakeBusiness((client||{}).settings||{}))return'';
+  labels=labels||[];
+  if(!labels.length)return'';
+  return '<div class="card p-5 mt-4 border border-pink-500/20 bg-pink-500/5">'+
+    '<div class="flex items-start justify-between gap-3 flex-wrap mb-3"><div><h3 class="text-white font-semibold"><i class="fas fa-image text-pink-300 mr-2"></i>Cake Type Image Icons</h3><p class="text-xs text-slate-400 mt-1">These images appear at the top of the cake MiniApp, for example Birthday Cakes and Wedding Cakes.</p></div>'+
+    '<button type="button" class="btn btn-primary text-xs" onclick="saveCategoryIconImages()"><i class="fas fa-save"></i> Save Icons</button></div>'+
+    '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">'+labels.map(categoryIconImageInput).join('')+'</div>'+
+  '</div>';
+}
+
+async function saveCategoryIconImages(){
+  var map={};
+  document.querySelectorAll('[data-category-icon-label]').forEach(function(input){
+    var label=input.getAttribute('data-category-icon-label')||'';
+    var value=(input.value||'').trim();
+    if(label&&value){
+      map[label]=value;
+      map[categoryIconKey(label)]=value;
+    }
+  });
+  try{
+    var res=await apiFetch('/api/client/settings',{method:'PUT',body:JSON.stringify({categoryIconImages:map})});
+    if(res&&res.client){client=res.client}else{client.settings=client.settings||{};client.settings.categoryIconImages=map}
+    showToast('Cake type icons saved.','success');
+    renderCategoriesSection();
+  }catch(err){showToast(err.message,'error')}
 }
 
 function retailLabelIcon(label,fallback){
@@ -494,6 +576,7 @@ retailLabelIcon=function(label,fallback){
   var text=String(label||'').toLowerCase();
   var cleanFallback=/[\u00c2\u00c3\u00c5\u00e2\u00ef\u00f0]/i.test(String(fallback||''))?'':fallback;
   var rules=[
+    [/birthday cake|wedding cake|custom cake|cake|bakery|cupcake|bento|pastry|dessert/,'🎂'],[/cookie|brownie|donut|cheesecake|tart/,'🍪'],[/candle|topper|cake box|gift packaging/,'🎁'],
     [/iphone|ios|apple phone/,'📱'],[/samsung|galaxy/,'📱'],[/tecno|infinix|redmi|xiaomi|itel|mobile|smart.?phone|feature phone|used phone|phone/,'📱'],
     [/charger|cable|type-c|power bank|phone accessories|screen protector|case|holder/,'🔌'],[/earphone|earbud|headphone|soundbar|speaker|audio/,'🎧'],
     [/laptop|computer|desktop|monitor|keyboard|mouse|ssd|flash|ram|webcam|hard drive|storage/,'💻'],[/printer|scanner|toner|ink|pos|cash register|barcode|office electronics/,'🖨️'],
@@ -512,6 +595,7 @@ retailLabelIcon=function(label,fallback){
   if(/furniture/.test(text))return'🛋️';
   if(/beauty|cosmetic/.test(text))return'💄';
   if(/home|kitchen/.test(text))return'🏠';
+  if(/cake|bakery|pastry|dessert/.test(text))return'🎂';
   return'📦';
 };
 
@@ -525,6 +609,8 @@ var PRODUCT_SPEC_PRESETS={
   colors:['Black','White','Red','Blue','Green','Yellow','Pink','Purple','Brown','Gray','Navy','Beige','Cream','Orange','Gold','Silver'],
   electronicsStorage:['64GB','128GB','256GB','512GB','1TB','2TB'],
   electronicsRam:['4GB RAM','6GB RAM','8GB RAM','12GB RAM','16GB RAM','32GB RAM'],
+  phoneScreenSizes:['5.5 inch','6.1 inch','6.5 inch','6.7 inch','6.8 inch','7 inch'],
+  computerScreenSizes:['11.6 inch','13 inch','14 inch','15.6 inch','16 inch','17.3 inch','24 inch','27 inch'],
   electronicsCondition:['Brand new','Used like new','Used good','Refurbished'],
   electronicsPower:['110V','220V','Rechargeable','Battery powered','USB-C','Micro USB'],
   kitchenCapacity:['0.5L','1L','1.5L','2L','3L','5L','7L','10L'],
@@ -534,7 +620,12 @@ var PRODUCT_SPEC_PRESETS={
   furnitureSize:['Single','Double','Queen','King','Small','Medium','Large'],
   furnitureMaterial:['Wood','Metal','Leather','Fabric','Foam','Glass','MDF'],
   groceryWeight:['250g','500g','1kg','2kg','5kg','10kg'],
-  packSize:['Single','2 pack','3 pack','6 pack','12 pack','Carton']
+  packSize:['Single','2 pack','3 pack','6 pack','12 pack','Carton'],
+  cakeSizes:['0.5 kg','1 kg','1.5 kg','2 kg','3 kg','4 kg','6 inch','8 inch','10 inch','12 inch','Two tier','Three tier'],
+  cakeFlavors:['Vanilla','Chocolate','Red velvet','Black forest','Marble','Strawberry','Lemon','Coffee','Carrot','Fruit cake'],
+  cakeFrosting:['Buttercream','Whipped cream','Fondant','Chocolate ganache','Cream cheese frosting','No frosting'],
+  cakeShapes:['Round','Square','Rectangle','Heart','Number shape','Tiered','Custom shape'],
+  cakeOccasions:['Birthday','Wedding','Engagement','Graduation','Anniversary','Baby shower','Corporate event','Religious celebration','Custom occasion']
 };
 function csvValues(v){return String(v||'').split(/[,|/;\n]+/).map(function(x){return x.trim()}).filter(Boolean)}
 function setCsvValues(id,values){var el=document.getElementById(id);if(el)el.value=values.filter(Boolean).join(', ')}
@@ -548,6 +639,14 @@ function specContextText(){
 }
 function productSpecProfile(cat,sub){
   var text=String((cat||'')+' '+(sub||'')).toLowerCase();
+  if(/\b(cakes?|bakery|baker(y|ies)|cupcakes?|pastries?|desserts?|birthday|wedding|fondant|bento)\b/.test(text))return{
+    sizeLabel:'Cake Size',
+    sizeValues:PRODUCT_SPEC_PRESETS.cakeSizes,
+    colorLabel:'Theme Color',
+    colorValues:['White','Chocolate','Pink','Blue','Gold','Red','Purple','Black','Cream','Custom color'],
+    optionLabel:'Flavor / Occasion',
+    optionValues:PRODUCT_SPEC_PRESETS.cakeFlavors.concat(PRODUCT_SPEC_PRESETS.cakeOccasions)
+  };
   if(/\b(jeans?|denim|bottoms?|pants?|trousers?)\b/.test(text))return{
     sizeLabel:'Waist Size',
     sizeValues:PRODUCT_SPEC_PRESETS.jeans,
@@ -565,12 +664,12 @@ function productSpecProfile(cat,sub){
     optionValues:['Men','Women','Kids','Flat','Low heel','High heel','Sport','Casual','Formal']
   };
   if(/\b(phones?|smartphones?|iphone|samsung|tecno|infinix|xiaomi|laptops?|computers?|tablets?)\b/.test(text))return{
-    sizeLabel:'Storage / Memory',
-    sizeValues:PRODUCT_SPEC_PRESETS.electronicsStorage.concat(PRODUCT_SPEC_PRESETS.electronicsRam),
+    sizeLabel:'Storage',
+    sizeValues:PRODUCT_SPEC_PRESETS.electronicsStorage,
     colorLabel:'Device Colors',
     colorValues:['Black','White','Silver','Gold','Blue','Green','Purple','Graphite','Gray'],
-    optionLabel:'Condition / Power',
-    optionValues:PRODUCT_SPEC_PRESETS.electronicsCondition.concat(PRODUCT_SPEC_PRESETS.electronicsPower)
+    optionLabel:'Condition',
+    optionValues:PRODUCT_SPEC_PRESETS.electronicsCondition
   };
   if(/\b(kitchen|cookware|cooking|pots?|pans?|bottles?|cups?|jars?|blenders?|kettles?)\b/.test(text))return{
     sizeLabel:'Capacity / Size',
@@ -615,6 +714,7 @@ function productSpecProfile(cat,sub){
 }
 function productSpecFamilyFromText(cat,sub,name){
   var text=String((cat||'')+' '+(sub||'')+' '+(name||'')).toLowerCase();
+  if(/\b(cakes?|bakery|baker(y|ies)|cupcakes?|pastries?|desserts?|birthday|wedding|fondant|bento)\b/.test(text))return'cakes';
   if(/\b(phone|smartphone|iphone|samsung|tecno|infinix|redmi|xiaomi|laptop|computer|tablet|electronics?|device|charger|cable|power bank|router|tv|camera|printer|gaming|playstation|xbox)\b/.test(text))return'electronics';
   if(/\b(shoe|sneaker|boot|sandal|heel|slipper)\b/.test(text))return'shoes';
   if(/\b(jeans?|denim|pants?|trousers?|bottoms?)\b/.test(text))return'jeans';
@@ -642,16 +742,26 @@ function specGroupInputId(key){return'prod-spec-'+specKey(key)}
 function productSpecGroupsProfile(cat,sub,name){
   var text=String((cat||'')+' '+(sub||'')+' '+(name||'')).toLowerCase();
   var profile=productSpecProfile(cat,[sub,name].filter(Boolean).join(' '));
+  if(/\b(cakes?|bakery|baker(y|ies)|cupcakes?|pastries?|desserts?|birthday|wedding|fondant|bento)\b/.test(text)){
+    return [
+      {key:'cake_size',label:'Cake Size',field:'size',values:PRODUCT_SPEC_PRESETS.cakeSizes},
+      {key:'flavor',label:'Flavor',field:'option',values:PRODUCT_SPEC_PRESETS.cakeFlavors},
+      {key:'frosting',label:'Cream / Frosting',field:'option',values:PRODUCT_SPEC_PRESETS.cakeFrosting},
+      {key:'shape',label:'Shape',field:'option',values:PRODUCT_SPEC_PRESETS.cakeShapes},
+      {key:'occasion',label:'Occasion',field:'option',values:PRODUCT_SPEC_PRESETS.cakeOccasions},
+      {key:'theme_color',label:'Theme Color',field:'color',values:['White','Chocolate','Pink','Blue','Gold','Red','Purple','Black','Cream','Custom color']}
+    ];
+  }
   if(/\b(phones?|smartphones?|iphone|samsung|tecno|infinix|xiaomi|redmi|laptops?|computers?|desktop|tablets?)\b/.test(text)){
     var laptopLike=/\b(laptops?|computers?|desktop|pc|notebook)\b/.test(text);
     var phoneLike=/\b(phones?|smartphones?|iphone|samsung|tecno|infinix|xiaomi|redmi)\b/.test(text);
     var groups=[
       {key:'storage',label:'Storage',field:'size',values:PRODUCT_SPEC_PRESETS.electronicsStorage},
       {key:'ram',label:'RAM',field:'size',values:PRODUCT_SPEC_PRESETS.electronicsRam},
+      {key:'screen_size',label:'Screen Size',field:'option',values:laptopLike?PRODUCT_SPEC_PRESETS.computerScreenSizes:PRODUCT_SPEC_PRESETS.phoneScreenSizes},
       {key:'color',label:'Color',field:'color',values:['Black','White','Silver','Gold','Blue','Green','Purple','Graphite','Gray']},
       {key:'condition',label:'Condition',field:'option',values:PRODUCT_SPEC_PRESETS.electronicsCondition}
     ];
-    if(!laptopLike&&phoneLike)groups=groups.filter(function(g){return g.key!=='ram'||true});
     return groups;
   }
   return [
@@ -877,7 +987,7 @@ function renderProductTable(products,s){
     var toggleText=p.isActive===false?'Reactivate':'Pause';
     return'<tr class="border-t border-slate-700/50 hover:bg-slate-800/40 transition-colors">'+
     '<td class="py-2 px-2"><div class="w-16 h-16 rounded bg-slate-800 flex items-center justify-center overflow-hidden">'+img+'</div></td>'+
-    '<td class="py-2 px-2"><span class="text-white text-sm font-medium">'+esc(p.name||'-')+'</span><span class="text-xs text-slate-500 ml-1 font-mono">'+esc(p.code||'')+'</span>'+(photoCount?'<span class="block mt-1 badge badge-pending text-xs w-fit">'+photoCount+' photo'+(photoCount===1?'':'s')+'</span>':'')+(posted?'<span class="block mt-1 badge badge-active text-xs w-fit">Posted '+posted+'x</span>':(draft?'<span class="block mt-1 badge badge-pending text-xs w-fit">Draft ready</span>':''))+'</td>'+
+    '<td class="py-2 px-2"><span class="text-white text-sm font-medium">'+esc(p.name||'-')+'</span><span class="text-xs text-slate-500 ml-1 font-mono">'+esc(p.code||'')+'</span>'+(p.featured?'<span class="block mt-1 badge badge-active text-xs w-fit">Featured</span>':'')+(photoCount?'<span class="block mt-1 badge badge-pending text-xs w-fit">'+photoCount+' photo'+(photoCount===1?'':'s')+'</span>':'')+(posted?'<span class="block mt-1 badge badge-active text-xs w-fit">Posted '+posted+'x</span>':(draft?'<span class="block mt-1 badge badge-pending text-xs w-fit">Draft ready</span>':''))+'</td>'+
     '<td class="py-2 px-2"><span class="text-xs text-slate-300">'+esc(p.category||'-')+'</span>'+(p.subcategory?'<span class="block text-[10px] text-slate-500">'+esc(p.subcategory)+'</span>':'')+'</td>'+
     '<td class="py-2 px-2 text-right"><span class="text-sm font-semibold text-white">'+esc(s.currencySymbol||'')+' '+esc(p.price||'0')+'</span></td>'+
     '<td class="py-2 px-2 text-center"><span class="badge '+stockBadge(p.stockQuantity||0)+' text-xs whitespace-nowrap">'+stockLabel(p.stockQuantity||0)+'</span></td>'+
@@ -925,7 +1035,7 @@ function productGalleryPreviewHtml(p){
   if(!p)return'';
   var imgs=Array.isArray(p.images)?p.images:[];
   if(imgs.length){
-    return imgs.slice(0,3).map(function(img,i){return'<div class="relative group rounded-lg border border-slate-200 bg-white p-1"><img class="rounded h-24 w-full object-cover bg-slate-100" src="'+esc(productImageUrlFromPath(p,img.publicPath||img.watermarkedPath||img.originalPath||''))+'"><button type="button" onclick="deleteProductImage(\''+esc(p.id)+'\','+i+')" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/95 border border-red-200 text-red-600 shadow-sm hover:bg-red-50" title="Remove this image"><i class="fas fa-times text-xs"></i></button><p class="text-[10px] text-slate-500 mt-1 px-1">Saved image '+(i+1)+'</p></div>'}).join('');
+    return imgs.slice(0,5).map(function(img,i){return'<div class="relative group rounded-lg border border-slate-200 bg-white p-1"><img class="rounded h-24 w-full object-cover bg-slate-100" src="'+esc(productImageUrlFromPath(p,img.publicPath||img.watermarkedPath||img.originalPath||''))+'"><button type="button" onclick="deleteProductImage(\''+esc(p.id)+'\','+i+')" class="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/95 border border-red-200 text-red-600 shadow-sm hover:bg-red-50" title="Remove this image"><i class="fas fa-times text-xs"></i></button><p class="text-[10px] text-slate-500 mt-1 px-1">Saved image '+(i+1)+'</p></div>'}).join('');
   }
   return p.imagePath?'<img class="rounded h-24 w-full object-cover bg-slate-800 p-1" src="/api/client/products/'+p.id+'/image">':'';
 }
@@ -964,7 +1074,7 @@ function renderPostSettings(settings){
   function opt(value,label,selected){return'<option value="'+value+'"'+(selected===value?' selected':'')+'>'+label+'</option>'}
   function check(id,label,checked,tip){return'<label class="flex items-start gap-2 text-xs text-slate-300"><input id="'+id+'" type="checkbox" class="mt-0.5"'+(checked?' checked':'')+'><span><strong class="font-medium text-slate-200">'+label+'</strong>'+(tip?'<small class="block text-slate-500 mt-0.5">'+tip+'</small>':'')+'</span></label>'}
   return'<form id="post-settings-form" class="card p-5 space-y-4" onsubmit="savePostSettings(event)">'+
-  '<div class="flex items-center justify-between gap-2 flex-wrap"><div><h3 class="text-sm font-semibold text-white"><i class="fas fa-sliders-h text-sprint-400 mr-2"></i>Posting Settings</h3><p class="text-xs text-slate-500 mt-1">Set the Telegram destination and how captions should be written.</p></div><button type="button" class="btn btn-ghost text-xs" onclick="testPostDestination()"><i class="fas fa-paper-plane"></i> Test Destination</button></div>'+
+  '<div class="flex items-center justify-between gap-2 flex-wrap"><div><h3 class="text-sm font-semibold text-white"><i class="fas fa-sliders-h text-sprint-400 mr-2"></i>Posting Settings</h3><p class="text-xs text-slate-500 mt-1">Captions now polish the product description you wrote and combine it with saved product facts.</p></div><button type="button" class="btn btn-ghost text-xs" onclick="testPostDestination()"><i class="fas fa-paper-plane"></i> Test Destination</button></div>'+
   '<div class="grid grid-cols-1 md:grid-cols-3 gap-3">'+
   '<div><label class="text-xs text-slate-400 block mb-1">Telegram channel/group</label><input id="post-destination" class="field" value="'+esc(settings.destination)+'" placeholder="@YourChannel or chat ID"><p class="text-xs text-slate-500 mt-0.5">Where public product posts will be sent.</p></div>'+
   '<div><label class="text-xs text-slate-400 block mb-1">Caption language</label><select id="post-language" class="field">'+opt('mixed','Amharic + English',''+settings.language)+opt('english','English',''+settings.language)+opt('amharic','Amharic',''+settings.language)+'</select></div>'+
@@ -978,6 +1088,7 @@ function renderPostSettings(settings){
   check('post-include-hashtags','Include hashtags',settings.includeHashtags,'Short Telegram/social tags.')+
   check('post-include-order','Include order instruction',settings.includeOrderInstruction,'Tells shoppers to order by product code.')+
   '</div>'+
+  '<div class="rounded-lg border border-blue-300/30 bg-blue-50 text-blue-950 p-3 text-xs"><i class="fas fa-pen-nib mr-1"></i>Tip: write a simple honest product description first. SprintSales will improve the wording, add selected facts like price/options, and avoid inventing unsupported claims.</div>'+
   '<div class="rounded-lg border border-amber-300/30 bg-amber-50 text-amber-900 p-3">'+
   '<label class="flex items-start gap-2 text-xs"><input id="post-auto-enabled" type="checkbox" class="mt-0.5"'+(settings.autoPostEnabled?' checked':'')+'><span><strong>Auto-post new products</strong><small class="block mt-0.5">Manual review is safer for version 1. Turn this on only when your destination and caption style are tested.</small></span></label>'+
   '<label class="flex items-start gap-2 text-xs mt-2"><input id="post-auto-accepted" type="checkbox" class="mt-0.5"'+(settings.autoPostWarningAccepted?' checked':'')+'><span>I understand new products can be posted automatically when auto-post is enabled.</span></label>'+
@@ -1116,6 +1227,7 @@ function showProductForm(editId){
   var subOptions=renderSubcategoryOptions(initialCategory,initialSubcategory);
   var statusVal=p?(p.isActive===false?'draft':(p.stockQuantity!=null&&p.stockQuantity<=0?'out_of_stock':'active')):((draft&&draft['prod-status'])||'active');
   var specGroups=productSpecGroupsProfile(initialCategory,initialSubcategory,p?p.name:((draft&&draft['prod-name'])||''));
+  var showCakePayment=clientIsCakeBusiness((client||{}).settings||{})||/cake|bakery|pastry|dessert/i.test([initialCategory,initialSubcategory].join(' '));
   container.innerHTML=
   '<div class="card p-6 mb-6">'+
   '<h3 class="text-white font-semibold mb-4">'+(p?'Edit Product':'New Product')+'</h3>'+
@@ -1144,15 +1256,17 @@ function showProductForm(editId){
   '</select><p class="text-xs text-slate-500 mt-0.5">Active = visible to customers</p></div>'+
   '</div>'+
 
+  '<label class="flex items-center gap-2 rounded-lg border border-slate-700 p-3 text-sm text-white bg-slate-900/40"><input id="prod-featured" type="checkbox" '+((p&&p.featured)||(draft&&draft['prod-featured']==='true')?'checked':'')+'> Feature this product on the online shop homepage <span class="text-xs text-slate-500">Use only for best sellers or products you want customers to notice first.</span></label>'+
+
   // Row 4: Description
   '<div><label class="text-xs text-slate-400 block mb-1">Description</label><textarea id="prod-desc" class="field" rows="3">'+esc(p?p.description||'':(draft&&draft['prod-desc'])||'')+'</textarea></div>'+
 
   // Row 5: Image upload + URL
   '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">'+
-  '<div><label class="text-xs text-slate-400 block mb-1">Product Images (up to 3)</label>'+
-  '<div class="grid grid-cols-1 sm:grid-cols-3 gap-2">'+[0,1,2].map(function(i){return'<label class="image-slot"><input type="file" id="prod-image-file-'+i+'" accept="image/*" onchange="previewProductImage()" class="hidden"><span class="image-slot-box"><i class="fas fa-image"></i><strong>Image '+(i+1)+'</strong><small>'+(i===0?'Main photo':'Optional')+'</small></span></label>'}).join('')+'</div>'+
-  '<p class="text-xs text-slate-500 mt-1">'+(p?'Add more photos without removing saved ones. Max 3 total.':'Choose up to 3 product photos. All uploaded images are watermarked locally.')+'</p>'+
-  '<div id="prod-image-previews" class="grid grid-cols-3 gap-2 mt-2">'+productGalleryPreviewHtml(p)+'</div></div>'+
+  '<div><label class="text-xs text-slate-400 block mb-1">Product Images (up to 5)</label>'+
+  '<div class="grid grid-cols-1 sm:grid-cols-5 gap-2">'+[0,1,2,3,4].map(function(i){return'<label class="image-slot"><input type="file" id="prod-image-file-'+i+'" accept="image/*" onchange="previewProductImage()" class="hidden"><span class="image-slot-box"><i class="fas fa-image"></i><strong>Image '+(i+1)+'</strong><small>'+(i===0?'Main photo':'Optional')+'</small></span></label>'}).join('')+'</div>'+
+  '<p class="text-xs text-slate-500 mt-1">'+(p?'Add more photos without removing saved ones. Max 5 total.':'Choose up to 5 product photos. All uploaded images are watermarked locally.')+'</p>'+
+  '<div id="prod-image-previews" class="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">'+productGalleryPreviewHtml(p)+'</div></div>'+
   '<div><label class="text-xs text-slate-400 block mb-1">Image URL (alternative)</label><input id="prod-image-url" class="field" value="'+esc(p&&p.imageUrl?p.imageUrl:'')+'" placeholder="https://..."><p class="text-xs text-slate-500 mt-0.5">Or paste an image URL</p></div>'+
   '</div>'+
 
@@ -1171,6 +1285,8 @@ function showProductForm(editId){
   '<label class="flex items-center gap-2"><input id="prod-exclude-discounts" type="checkbox" '+(p&&p.excludeFromDiscounts?'checked':'')+'> Exclude from all automatic discounts</label>'+
   '</div><p class="text-xs text-slate-500 mt-2">Global discount percentages are managed in the Discounts section.</p></div>'+
 
+  (showCakePayment?cakeProductPaymentPanel(p,draft):'')+
+
   // Actions
   '<div class="flex gap-2 pt-2"><button type="button" class="btn btn-primary text-xs" onclick="saveProduct(\''+(p?p.id:'')+'\')"><i class="fas fa-save"></i> Save Product</button><button type="button" class="btn btn-ghost text-xs" onclick="document.getElementById(\'product-form-container\').innerHTML=\'\'">Cancel</button></div>'+
 
@@ -1184,8 +1300,30 @@ function showProductForm(editId){
   refreshSpecChips();
 }
 
+function cakeProductPaymentPanel(p,draft){
+  var s=p?(p.cakePaymentSettings||p.cakeOrderSettings||{}):{};
+  var mode=(p?s.paymentMode:((draft&&draft['prod-cake-payment-mode'])||'default'))||'default';
+  var type=(p?s.depositType:((draft&&draft['prod-cake-deposit-type'])||'percent'))||'percent';
+  var value=p?(s.depositValue||''):((draft&&draft['prod-cake-deposit-value'])||'');
+  return '<div class="rounded-lg border border-pink-400/25 bg-pink-500/5 p-3">'+
+    '<p class="text-sm font-semibold text-white mb-1"><i class="fas fa-cake-candles text-pink-300 mr-2"></i>Cake payment rule</p>'+
+    '<p class="text-xs text-slate-500 mb-3">Choose how much this cake requires before preparation. Leave default to use the shop-wide Payment Settings rule.</p>'+
+    '<div class="grid grid-cols-1 md:grid-cols-3 gap-3">'+
+      '<div><label class="text-xs text-slate-400 block mb-1">Payment rule for this cake</label><select id="prod-cake-payment-mode" class="field">'+
+        '<option value="default"'+(mode==='default'?' selected':'')+'>Use shop default</option>'+
+        '<option value="full"'+(mode==='full'?' selected':'')+'>Full payment first</option>'+
+        '<option value="deposit"'+(mode==='deposit'?' selected':'')+'>Kabd / advance first</option>'+
+        '<option value="delivery"'+(mode==='delivery'?' selected':'')+'>Full payment on delivery/pickup</option>'+
+      '</select></div>'+
+      '<div><label class="text-xs text-slate-400 block mb-1">Kabd type</label><select id="prod-cake-deposit-type" class="field"><option value="percent"'+(type!=='fixed'?' selected':'')+'>Percent</option><option value="fixed"'+(type==='fixed'?' selected':'')+'>Fixed Birr</option></select></div>'+
+      '<div><label class="text-xs text-slate-400 block mb-1">Kabd value</label><input id="prod-cake-deposit-value" class="field" type="number" min="0" max="999999" value="'+esc(value)+'" placeholder="30"></div>'+
+    '</div>'+
+    '<p class="text-xs text-slate-500 mt-2">Example: choose Kabd + Percent + 30 to ask 30% now and collect the rest later.</p>'+
+  '</div>';
+}
+
 function previewProductImage(){
-  var files=[0,1,2].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?input.files[0]:null}).filter(Boolean);
+  var files=[0,1,2,3,4].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?input.files[0]:null}).filter(Boolean);
   var wrap=document.getElementById('prod-image-previews');
   if(!wrap)return;
   wrap.innerHTML='';
@@ -1205,6 +1343,7 @@ function collectProductDraft(){
   var ids=['prod-code','prod-name','prod-category-select','prod-subcategory-select','prod-price','prod-cost-price','prod-stock','prod-status','prod-desc','prod-sizes','prod-colors','prod-options'];
   var draft={};
   ids.forEach(function(id){var el=document.getElementById(id);if(el)draft[id]=el.value});
+  var featured=document.getElementById('prod-featured');if(featured)draft['prod-featured']=String(Boolean(featured.checked));
   var payload=collectProductSpecPayload();
   draft['prod-spec-groups']=JSON.stringify(payload.groups);
   return draft;
@@ -1238,6 +1377,7 @@ async function saveProduct(id){
   fd.append('options',specs.options);
   fd.append('specGroups',JSON.stringify(specs.groups));
   fd.append('description',document.getElementById('prod-desc').value.trim());
+  fd.append('featured',String(Boolean((document.getElementById('prod-featured')||{}).checked)));
   fd.append('discountNewBuyer',String(Boolean((document.getElementById('prod-disc-new')||{}).checked)));
   fd.append('discountRepeatBuyer',String(Boolean((document.getElementById('prod-disc-repeat')||{}).checked)));
   fd.append('discountBirthdayWeek',String(Boolean((document.getElementById('prod-disc-birthday')||{}).checked)));
@@ -1245,16 +1385,25 @@ async function saveProduct(id){
   fd.append('discountHoliday',String(Boolean((document.getElementById('prod-disc-holiday')||{}).checked)));
   fd.append('discountPromoCodes',String(Boolean((document.getElementById('prod-disc-promo')||{}).checked)));
   fd.append('excludeFromDiscounts',String(Boolean((document.getElementById('prod-exclude-discounts')||{}).checked)));
+  if(document.getElementById('prod-cake-payment-mode')){
+    fd.append('cakePaymentMode',(document.getElementById('prod-cake-payment-mode').value||'default'));
+    fd.append('cakeDepositType',(document.getElementById('prod-cake-deposit-type').value||'percent'));
+    fd.append('cakeDepositValue',String(Math.max(0,Number((document.getElementById('prod-cake-deposit-value')||{}).value)||0)));
+  }
 
   var statusVal=document.getElementById('prod-status').value;
   fd.append('status',statusVal);
   if(statusVal==='draft')fd.append('isActive','false');
   else fd.append('isActive','true');
 
-  var imgFiles=[0,1,2].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?input.files[0]:null}).filter(Boolean).slice(0,3);
+  var imgFiles=[0,1,2,3,4].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?input.files[0]:null}).filter(Boolean).slice(0,5);
   imgFiles.forEach(function(file){fd.append('images',file)});
 
-  if(!fd.get('code')||!fd.get('name')){showToast('Product code and name are required.','error');return}
+  if(!fd.get('code')&&$('prod-code')){
+    generateProductCode();
+    fd.set('code',$('prod-code').value);
+  }
+  if(!fd.get('code')||!fd.get('name')){showToast('Product name is required.','error');return}
 
   try{
     var method=id?'PUT':'POST';
@@ -1301,6 +1450,10 @@ function renderCategoriesPage(c){
 function renderCategoriesSection(){
   var c=document.getElementById('products-categories-section');
   var cats=getCategories();
+  var cakeIconLabels=[].concat(cats);
+  getCategoryTemplates().forEach(function(template){
+    (template.subcategories||[]).forEach(function(sub){if(cakeIconLabels.indexOf(sub)<0)cakeIconLabels.push(sub)});
+  });
   var cl=client||{}, bp=(cl.settings||{}).businessProfile||{};
   var bt=bp.retailType||bp.businessType||cl.businessTypeLabel||'retail';
   c.classList.remove('hidden');
@@ -1311,7 +1464,7 @@ function renderCategoriesSection(){
   '<button class="btn btn-primary text-xs" onclick="showCategoryForm()"><i class="fas fa-plus"></i> Add Custom</button></div></div>'+
   '<div id="cat-form-container"></div>'+
   (cats.length?'<div class="space-y-1">'+cats.map(function(cat){return'<div class="flex items-center justify-between py-1.5 px-2 rounded hover:bg-slate-800"><span class="text-sm text-white">'+esc(cat)+'</span><button onclick="deleteCategory(\''+esc(cat)+'\')" class="btn btn-ghost text-xs text-red-400"><i class="fas fa-trash"></i></button></div>'}).join('')+'</div>':'<p class="text-sm text-slate-400">No categories yet. Use the buttons above to add business-type defaults or custom categories.</p>')+
-  '</div>';
+  '</div>'+renderCakeTypeIconManager(cakeIconLabels);
 }
 
 function showCategoryForm(){
@@ -1587,17 +1740,57 @@ async function saveDeliverySettings(e){
 var ETH_PAYMENT_METHODS=['Telebirr','Commercial Bank of Ethiopia (CBE)','Awash Bank','Dashen Bank','Bank of Abyssinia','Cooperative Bank of Oromia','Wegagen Bank','Hibret Bank','Nib International Bank','Zemen Bank','Oromia Bank','Lion International Bank','Bunna Bank','Berhan Bank','Abay Bank','Addis International Bank','Debub Global Bank','Enat Bank','Amhara Bank','Goh Betoch Bank','ZamZam Bank','Hijra Bank','Siinqee Bank','Tsedey Bank','Ahadu Bank','Tsehay Bank','Shabelle Bank','Gadaa Bank','Sidama Bank','Rammis Bank','Siket Bank','Omo Bank','Global Bank Ethiopia'];
 function paymentMethodOptions(selected){return'<option value="">Select payment method</option>'+ETH_PAYMENT_METHODS.map(function(m){return'<option value="'+esc(m)+'"'+(selected===m?' selected':'')+'>'+esc(m)+'</option>'}).join('')}
 function paymentOptionRow(i,opt){opt=opt||{};return'<div class="card p-4 bg-slate-900/40"><div class="flex items-center justify-between mb-3"><h4 class="text-white text-sm font-semibold">Payment Option '+(i+1)+'</h4><span class="text-xs text-slate-500">Optional</span></div><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 block mb-1">Bank / Wallet</label><select id="pay-method-'+i+'" class="field">'+paymentMethodOptions(opt.method||'')+'</select></div><div><label class="text-xs text-slate-400 block mb-1">Account Number</label><input id="pay-account-'+i+'" class="field" value="'+esc(opt.accountNumber||'')+'" placeholder="Account or wallet number"></div><div><label class="text-xs text-slate-400 block mb-1">Account Full Name</label><input id="pay-name-'+i+'" class="field" value="'+esc(opt.accountName||'')+'" placeholder="Registered account name"></div></div></div>'}
-function renderPaymentTab(c){var cs=(client||{}).settings||{},opts=Array.isArray(cs.paymentOptions)?cs.paymentOptions:[],pv=cs.paymentVerification||{},plan=String(((client||{}).billing||{}).plan||'basic').toLowerCase(),isPro=plan==='pro',mode=cs.paymentVerificationMode||pv.mode||'manual',autoAvailable=!!pv.automaticAvailable;var autoDisabled=!isPro||!autoAvailable;var autoHelp=!isPro?'Automatic verification is a Pro plan option. Manual owner approval still works.':(!pv.apiConfigured?'Automatic verification is waiting for the SprintSales Verify.et server key.':'Verify.et will check reference, amount, and receiver account before approving.');c.innerHTML='<div class="space-y-6"><div><h2 class="text-xl font-semibold text-white"><i class="fas fa-credit-card text-sprint-400 mr-2"></i>Payment Settings</h2><p class="text-sm text-slate-400 mt-1">Add up to 3 accounts customers can pay after confirming an order.</p></div><form onsubmit="savePaymentSettings(event)" class="space-y-4"><div class="card p-4"><h3 class="text-sm font-semibold text-white mb-2">Payment approval mode</h3><p class="text-xs text-slate-500 mb-3">Choose how payment proofs are handled after shoppers pay.</p><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><label class="rounded-xl border border-slate-700 p-4 cursor-pointer '+(mode!=='automatic'?'bg-sprint-500/10 border-sprint-400/40':'')+'"><div class="flex items-start gap-3"><input type="radio" name="payment-verification-mode" value="manual" '+(mode!=='automatic'?'checked':'')+' class="mt-1"><div><p class="text-sm font-semibold text-white">Manual approval</p><p class="text-xs text-slate-500 mt-1">The shop owner receives the proof and confirms or rejects it after checking the bank/wallet.</p></div></div></label><label class="rounded-xl border border-slate-700 p-4 '+(autoDisabled?'opacity-60':'cursor-pointer ')+(mode==='automatic'?'bg-green-500/10 border-green-400/40':'')+'"><div class="flex items-start gap-3"><input type="radio" name="payment-verification-mode" value="automatic" '+(mode==='automatic'?'checked':'')+' '+(autoDisabled?'disabled':'')+' class="mt-1"><div><p class="text-sm font-semibold text-white">Automatic verification <span class="badge badge-active text-xs ml-1">Pro</span></p><p class="text-xs text-slate-500 mt-1">'+esc(autoHelp)+'</p></div></div></label></div></div>'+[0,1,2].map(function(i){return paymentOptionRow(i,opts[i])}).join('')+'<div class="card p-4 border border-yellow-500/20 bg-yellow-500/5"><p class="text-xs text-yellow-200"><i class="fas fa-info-circle mr-1"></i>Only filled rows are saved. Customers see these details only after the system knows the delivery fee. Automatic mode asks shoppers to paste the bank/Telebirr SMS or transaction reference as text.</p></div><button type="submit" class="btn btn-primary text-xs"><i class="fas fa-save"></i> Save Payment Settings</button></form></div>'}
-async function savePaymentSettings(e){e.preventDefault();var paymentOptions=[0,1,2].map(function(i){return{method:(document.getElementById('pay-method-'+i)||{}).value||'',accountNumber:((document.getElementById('pay-account-'+i)||{}).value||'').trim(),accountName:((document.getElementById('pay-name-'+i)||{}).value||'').trim()}}).filter(function(row){return row.method&&row.accountNumber&&row.accountName});var selected=document.querySelector('input[name="payment-verification-mode"]:checked');var paymentVerificationMode=selected?selected.value:'manual';try{var res=await apiFetch('/api/client/settings',{method:'PUT',body:JSON.stringify({paymentOptions:paymentOptions,paymentVerificationMode:paymentVerificationMode})});if(res&&res.client){client=res.client}else{client.settings.paymentOptions=paymentOptions;client.settings.paymentVerificationMode=paymentVerificationMode}showToast('Payment settings saved.','success');switchClientTab('payment')}catch(err){showToast(err.message,'error')}}
+function isCakeClient(){
+  var bp=(((client||{}).settings||{}).businessProfile)||{};
+  var text=String(bp.retailType||bp.businessType||client?.businessTypeLabel||'').toLowerCase();
+  return /cake|bakery|pastry|dessert/.test(text);
+}
+function cakePaymentSettingsPanel(settings){
+  if(!isCakeClient())return'';
+  var cake=settings.cakeOrderSettings||{};
+  var mode=cake.paymentMode||'full';
+  var type=cake.depositType||'percent';
+  var value=Number(cake.depositValue||30)||0;
+  return '<div class="card p-4 border border-pink-500/20 bg-pink-500/5"><h3 class="text-sm font-semibold text-white mb-2">Cake Kabd / advance payment</h3><p class="text-xs text-slate-400 mb-3">Choose whether cake shoppers pay the full amount now or a first advance payment before the cake is prepared.</p><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 block mb-1">Cake payment rule</label><select id="cake-payment-mode" class="field"><option value="full"'+(mode!=='deposit'?' selected':'')+'>Full payment</option><option value="deposit"'+(mode==='deposit'?' selected':'')+'>Kabd / deposit first</option></select></div><div><label class="text-xs text-slate-400 block mb-1">Deposit type</label><select id="cake-deposit-type" class="field"><option value="percent"'+(type!=='fixed'?' selected':'')+'>Percent of order</option><option value="fixed"'+(type==='fixed'?' selected':'')+'>Fixed Birr amount</option></select></div><div><label class="text-xs text-slate-400 block mb-1">Deposit value</label><input id="cake-deposit-value" class="field" type="number" min="0" max="999999" value="'+esc(value)+'"></div></div><p class="text-xs text-slate-500 mt-3">Example: 30 percent Kabd means a 2,000 Birr cake asks for 600 Birr now and records 1,400 Birr balance.</p></div>';
+}
+function renderPaymentTab(c){
+  var cs=(client||{}).settings||{},opts=Array.isArray(cs.paymentOptions)?cs.paymentOptions:[],pv=cs.paymentVerification||{},plan=String(((client||{}).billing||{}).plan||'basic').toLowerCase(),isPro=plan==='pro',mode=cs.paymentVerificationMode||pv.mode||'manual',autoAvailable=!!pv.automaticAvailable;
+  var autoDisabled=!isPro||!autoAvailable;
+  var autoHelp=!isPro?'Automatic verification is a Pro plan option. Manual owner approval still works.':(!pv.apiConfigured?'Automatic verification is waiting for the SprintSales server key.':'SprintSales will check reference, amount, and receiver account before approving.');
+  c.innerHTML='<div class="space-y-6"><div><h2 class="text-xl font-semibold text-white"><i class="fas fa-credit-card text-sprint-400 mr-2"></i>Payment Settings</h2><p class="text-sm text-slate-400 mt-1">Add up to 3 accounts customers can pay after confirming an order.</p></div><form onsubmit="savePaymentSettings(event)" class="space-y-4"><div class="card p-4"><h3 class="text-sm font-semibold text-white mb-2">Payment approval mode</h3><p class="text-xs text-slate-500 mb-3">Choose how payment proofs are handled after shoppers pay.</p><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><label class="rounded-xl border border-slate-700 p-4 cursor-pointer '+(mode!=='automatic'?'bg-sprint-500/10 border-sprint-400/40':'')+'"><div class="flex items-start gap-3"><input type="radio" name="payment-verification-mode" value="manual" '+(mode!=='automatic'?'checked':'')+' class="mt-1"><div><p class="text-sm font-semibold text-white">Manual approval</p><p class="text-xs text-slate-500 mt-1">The shop owner receives the proof and confirms or rejects it after checking the bank/wallet.</p></div></div></label><label class="rounded-xl border border-slate-700 p-4 '+(autoDisabled?'opacity-60':'cursor-pointer ')+(mode==='automatic'?'bg-green-500/10 border-green-400/40':'')+'"><div class="flex items-start gap-3"><input type="radio" name="payment-verification-mode" value="automatic" '+(mode==='automatic'?'checked':'')+' '+(autoDisabled?'disabled':'')+' class="mt-1"><div><p class="text-sm font-semibold text-white">Automatic verification <span class="badge badge-active text-xs ml-1">Pro</span></p><p class="text-xs text-slate-500 mt-1">'+esc(autoHelp)+'</p></div></div></label></div></div>'+cakePaymentSettingsPanel(cs)+[0,1,2].map(function(i){return paymentOptionRow(i,opts[i])}).join('')+'<div class="card p-4 border border-yellow-500/20 bg-yellow-500/5"><p class="text-xs text-yellow-200"><i class="fas fa-info-circle mr-1"></i>Only filled rows are saved. Customers see these details only after the system knows the delivery fee. Automatic mode asks shoppers to paste the bank/Telebirr SMS or transaction reference as text.</p></div><button type="submit" class="btn btn-primary text-xs"><i class="fas fa-save"></i> Save Payment Settings</button></form></div>';
+}
+async function savePaymentSettings(e){
+  e.preventDefault();
+  var paymentOptions=[0,1,2].map(function(i){return{method:(document.getElementById('pay-method-'+i)||{}).value||'',accountNumber:((document.getElementById('pay-account-'+i)||{}).value||'').trim(),accountName:((document.getElementById('pay-name-'+i)||{}).value||'').trim()}}).filter(function(row){return row.method&&row.accountNumber&&row.accountName});
+  var selected=document.querySelector('input[name="payment-verification-mode"]:checked');
+  var paymentVerificationMode=selected?selected.value:'manual';
+  var body={paymentOptions:paymentOptions,paymentVerificationMode:paymentVerificationMode};
+  if(isCakeClient()){
+    body.cakeOrderSettings={
+      paymentMode:((document.getElementById('cake-payment-mode')||{}).value||'full')==='deposit'?'deposit':'full',
+      depositType:((document.getElementById('cake-deposit-type')||{}).value||'percent')==='fixed'?'fixed':'percent',
+      depositValue:Math.max(0,Number((document.getElementById('cake-deposit-value')||{}).value)||0),
+      writingRequired:true
+    };
+  }
+  try{
+    var res=await apiFetch('/api/client/settings',{method:'PUT',body:JSON.stringify(body)});
+    if(res&&res.client){client=res.client}else{client.settings=client.settings||{};client.settings.paymentOptions=paymentOptions;client.settings.paymentVerificationMode=paymentVerificationMode;if(body.cakeOrderSettings)client.settings.cakeOrderSettings=body.cakeOrderSettings}
+    showToast('Payment settings saved.','success');
+    switchClientTab('payment');
+  }catch(err){showToast(err.message,'error')}
+}
 
 function miniappSlug(value){return String(value||'').toLowerCase().trim().replace(/['"]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80)}
 function miniappDefaultSlug(){var s=((client||{}).settings||{}).miniapp||{};return miniappSlug(s.slug||((client||{}).businessName)||((client||{}).id)||'shop')}
 function miniappPublicBase(){return window.location.origin||'https://automation.sprintsales.net'}
-function miniappUrlForSlug(slug){return miniappPublicBase()+'/shop/'+encodeURIComponent(miniappSlug(slug)||miniappDefaultSlug())}
-function updateMiniappPreview(){var slug=(document.getElementById('miniapp-slug')||{}).value||miniappDefaultSlug();var url=miniappUrlForSlug(slug);var link=document.getElementById('miniapp-preview-link');var text=document.getElementById('miniapp-preview-text');if(link){link.href=url;link.textContent=url}if(text)text.value=url}
-function renderMiniappTab(c){var cs=(client||{}).settings||{},m=cs.miniapp||{},slug=miniappSlug(m.slug||cs.storeSlug||(client||{}).businessName||(client||{}).id),enabled=m.enabled!==false,template=m.template||'clean-retail',theme=m.themeColor||'#0f2a52',accent=m.accentColor||'#14b8a6',custom=m.customDomain||cs.miniappDomain||'',productCount=(appState.products||[]).filter(function(p){return p.isActive!==false}).length;var url=miniappUrlForSlug(slug);c.innerHTML='<div class="space-y-6"><div class="flex flex-col lg:flex-row lg:items-end justify-between gap-3"><div><h2 class="text-xl font-semibold text-white"><i class="fas fa-mobile-screen-button text-sprint-400 mr-2"></i>MiniApp Shop</h2><p class="text-sm text-slate-400 mt-1">A mobile storefront that uses the same products, prices, images, delivery, and payment settings already in SprintSales.</p></div><a id="miniapp-preview-link" href="'+esc(url)+'" target="_blank" rel="noopener" class="btn btn-secondary text-xs"><i class="fas fa-arrow-up-right-from-square"></i> Open MiniApp</a></div>'+
-'<div class="grid grid-cols-1 xl:grid-cols-[1fr_.8fr] gap-5"><form onsubmit="saveMiniappSettings(event)" class="card p-5 space-y-4"><h3 class="text-white font-semibold">MiniApp Doorway</h3><label class="flex items-center gap-2 text-sm text-white"><input id="miniapp-enabled" type="checkbox" '+(enabled?'checked':'')+'> Enable MiniApp catalog</label><div><label class="text-xs text-slate-400 block mb-1">Shop link slug</label><div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2"><input id="miniapp-slug" class="field" value="'+esc(slug)+'" placeholder="aman-electronics" oninput="this.value=miniappSlug(this.value);updateMiniappPreview()"><button type="button" class="btn btn-ghost text-xs" onclick="document.getElementById(\'miniapp-slug\').value=miniappDefaultSlug();updateMiniappPreview()"><i class="fas fa-wand-magic-sparkles"></i> Use business name</button></div><p class="text-xs text-slate-500 mt-1">This creates a public link like /shop/'+esc(slug||'your-shop')+'.</p></div><div><label class="text-xs text-slate-400 block mb-1">Public MiniApp URL</label><input id="miniapp-preview-text" class="field" readonly value="'+esc(url)+'"></div><div><label class="text-xs text-slate-400 block mb-1">Custom domain</label><input id="miniapp-domain" class="field" value="'+esc(custom)+'" placeholder="shop.yourbusiness.com"><p class="text-xs text-slate-500 mt-1">Optional. The domain must point to SprintSales before it can load this shop.</p></div><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 block mb-1">Template</label><select id="miniapp-template" class="field"><option value="clean-retail"'+(template==='clean-retail'?' selected':'')+'>Clean Retail</option><option value="boutique-grid"'+(template==='boutique-grid'?' selected':'')+'>Boutique Grid</option></select></div><div><label class="text-xs text-slate-400 block mb-1">Navy / main color</label><input id="miniapp-theme" class="field" type="color" value="'+esc(theme)+'"></div><div><label class="text-xs text-slate-400 block mb-1">Accent color</label><input id="miniapp-accent" class="field" type="color" value="'+esc(accent)+'"></div></div><button type="submit" class="btn btn-primary text-xs"><i class="fas fa-save"></i> Save MiniApp Settings</button></form>'+
-'<div class="space-y-4"><div class="card p-5"><h3 class="text-white font-semibold mb-3">What the MiniApp Uses</h3><div class="space-y-3 text-sm text-slate-300"><div class="flex gap-3"><i class="fas fa-box text-sprint-400 mt-1"></i><p><b class="text-white">'+esc(productCount)+'</b> active product'+(productCount===1?'':'s')+' from Products.</p></div><div class="flex gap-3"><i class="fas fa-image text-sprint-400 mt-1"></i><p>Watermarked/public product images already saved in SprintSales.</p></div><div class="flex gap-3"><i class="fas fa-tag text-sprint-400 mt-1"></i><p>Existing prices, product codes, categories, colors, and sizes.</p></div><div class="flex gap-3"><i class="fas fa-robot text-sprint-400 mt-1"></i><p>The Order button hands shoppers back to the connected Telegram bot.</p></div></div></div><div class="card p-5 border border-blue-500/20 bg-blue-500/5"><h3 class="text-white font-semibold mb-2">Next version</h3><p class="text-sm text-slate-400">Order creation, Telegram MiniApp identity validation, payment, and delivery tracking will be added after this catalog doorway is stable.</p></div></div></div></div>';setTimeout(updateMiniappPreview,0)}
+function miniappPlatformDomain(){var host=String(window.location.hostname||'').toLowerCase().replace(/^www\./,'');return host.endsWith('sprintsales.net')?'sprintsales.net':''}
+function miniappCleanDomain(value){return String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0]}
+function miniappUrlForSlug(slug,customDomain){var cleanCustom=miniappCleanDomain(customDomain);if(cleanCustom)return'https://'+cleanCustom;var cleanSlug=miniappSlug(slug)||miniappDefaultSlug();var domain=miniappPlatformDomain();return domain?'https://'+cleanSlug+'.'+domain:miniappPublicBase()+'/shop/'+encodeURIComponent(cleanSlug)}
+function updateMiniappPreview(){var slug=(document.getElementById('miniapp-slug')||{}).value||miniappDefaultSlug();var custom=(document.getElementById('miniapp-domain')||{}).value||'';var url=miniappUrlForSlug(slug,custom);var link=document.getElementById('miniapp-preview-link');var text=document.getElementById('miniapp-preview-text');if(link){link.href=url;link.textContent=url}if(text)text.value=url}
+function renderMiniappTab(c){var cs=(client||{}).settings||{},m=cs.miniapp||{},slug=miniappSlug(m.slug||cs.storeSlug||(client||{}).businessName||(client||{}).id),enabled=m.enabled!==false,template=m.template||'clean-retail',theme=m.themeColor||'#0f2a52',accent=m.accentColor||'#14b8a6',custom=m.customDomain||cs.miniappDomain||'',productCount=(appState.products||[]).filter(function(p){return p.isActive!==false}).length;var url=miniappUrlForSlug(slug,custom);c.innerHTML='<div class="space-y-6"><div class="flex flex-col lg:flex-row lg:items-end justify-between gap-3"><div><h2 class="text-xl font-semibold text-white"><i class="fas fa-mobile-screen-button text-sprint-400 mr-2"></i>MiniApp Shop</h2><p class="text-sm text-slate-400 mt-1">A mobile storefront that uses the same products, prices, images, delivery, and payment settings already in SprintSales.</p></div><a id="miniapp-preview-link" href="'+esc(url)+'" target="_blank" rel="noopener" class="btn btn-secondary text-xs"><i class="fas fa-arrow-up-right-from-square"></i> Open MiniApp</a></div>'+
+'<div class="grid grid-cols-1 xl:grid-cols-[1fr_.8fr] gap-5"><form onsubmit="saveMiniappSettings(event)" class="card p-5 space-y-4"><h3 class="text-white font-semibold">MiniApp Doorway</h3><label class="flex items-center gap-2 text-sm text-white"><input id="miniapp-enabled" type="checkbox" '+(enabled?'checked':'')+'> Enable MiniApp catalog</label><div><label class="text-xs text-slate-400 block mb-1">Shop link slug</label><div class="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2"><input id="miniapp-slug" class="field" value="'+esc(slug)+'" placeholder="aman-electronics" oninput="this.value=miniappSlug(this.value);updateMiniappPreview()"><button type="button" class="btn btn-ghost text-xs" onclick="document.getElementById(\'miniapp-slug\').value=miniappDefaultSlug();updateMiniappPreview()"><i class="fas fa-wand-magic-sparkles"></i> Use business name</button></div><p class="text-xs text-slate-500 mt-1">This creates a public link like https://'+esc(slug||'your-shop')+'.sprintsales.net.</p></div><div><label class="text-xs text-slate-400 block mb-1">Public MiniApp URL</label><input id="miniapp-preview-text" class="field" readonly value="'+esc(url)+'"></div><div><label class="text-xs text-slate-400 block mb-1">Custom domain</label><input id="miniapp-domain" class="field" value="'+esc(custom)+'" placeholder="shop.yourbusiness.com" oninput="updateMiniappPreview()"><p class="text-xs text-slate-500 mt-1">Optional. The domain must point to SprintSales before it can load this shop.</p></div><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div><label class="text-xs text-slate-400 block mb-1">Navy / main color</label><input id="miniapp-theme" class="field" type="color" value="'+esc(theme)+'"></div><div><label class="text-xs text-slate-400 block mb-1">Accent color</label><input id="miniapp-accent" class="field" type="color" value="'+esc(accent)+'"></div></div><input id="miniapp-template" type="hidden" value="clean-retail"><p class="text-xs text-slate-500">V1 uses one polished mobile storefront template connected to your existing products and orders.</p><button type="submit" class="btn btn-primary text-xs"><i class="fas fa-save"></i> Save MiniApp Settings</button></form>'+
+'<div class="space-y-4"><div class="card p-5"><h3 class="text-white font-semibold mb-3">What the MiniApp Uses</h3><div class="space-y-3 text-sm text-slate-300"><div class="flex gap-3"><i class="fas fa-box text-sprint-400 mt-1"></i><p><b class="text-white">'+esc(productCount)+'</b> active product'+(productCount===1?'':'s')+' from Products.</p></div><div class="flex gap-3"><i class="fas fa-image text-sprint-400 mt-1"></i><p>Watermarked/public product images already saved in SprintSales.</p></div><div class="flex gap-3"><i class="fas fa-tag text-sprint-400 mt-1"></i><p>Existing prices, product codes, categories, colors, sizes, delivery fees, and payment accounts.</p></div><div class="flex gap-3"><i class="fas fa-cart-shopping text-sprint-400 mt-1"></i><p>Shoppers can search, view details, submit orders, and receive payment instructions from the same dashboard data.</p></div></div></div><div class="card p-5 border border-blue-500/20 bg-blue-500/5"><h3 class="text-white font-semibold mb-2">Good to know</h3><p class="text-sm text-slate-400">For now payment proof and support still continue through Telegram, while orders created here appear in your Orders section.</p></div></div></div></div>';setTimeout(updateMiniappPreview,0)}
 async function saveMiniappSettings(e){e.preventDefault();var miniapp={enabled:document.getElementById('miniapp-enabled').checked,slug:miniappSlug(document.getElementById('miniapp-slug').value||miniappDefaultSlug()),customDomain:(document.getElementById('miniapp-domain').value||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0],template:document.getElementById('miniapp-template').value,themeColor:document.getElementById('miniapp-theme').value||'#0f2a52',accentColor:document.getElementById('miniapp-accent').value||'#14b8a6'};try{var res=await apiFetch('/api/client/settings',{method:'PUT',body:JSON.stringify({miniapp:miniapp})});if(res&&res.client){client=res.client}else{client.settings=client.settings||{};client.settings.miniapp=miniapp}showToast('MiniApp settings saved.','success');switchClientTab('miniapp')}catch(err){showToast(err.message,'error')}}
 
 async function loadAdminDashboard(){document.body.classList.add('admin-dashboard');document.body.classList.remove('client-dashboard');var mobileNav=document.getElementById('mobile-bottom-nav');if(mobileNav)mobileNav.remove();client=null;appState={};var banner=document.getElementById('status-banner');if(banner)banner.classList.add('hidden');document.getElementById('loading').classList.add('hidden');document.getElementById('public-page').classList.add('hidden');document.getElementById('error-page').classList.add('hidden');document.getElementById('dashboard').classList.remove('hidden');document.getElementById('sidebar-biz-name').textContent='SprintSales Admin';document.getElementById('sidebar-role-badge').textContent='Admin';document.getElementById('sidebar-role-badge').className='badge badge-active text-xs';if(window.innerWidth<768)document.getElementById('mobile-menu-btn').style.display='block';window.scrollTo(0,0);switchAdminTab(currentTab||'overview')}
