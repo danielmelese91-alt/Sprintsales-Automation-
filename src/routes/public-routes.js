@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { normalizePaymentOptions } from '../config/payment-methods.js';
 import { normalizeDeliveryZones } from '../config/addis-delivery-locations.js';
+import { normalizeMiniappTemplate } from '../config/miniapp-templates.js';
 
 const normalizeDiscountValue = value => Math.max(0, Math.min(100, Number(value || 0) || 0));
 const normalizeWeeklyDiscountCap = value => Math.max(0, Math.min(9999, Number(value || 0) || 0));
@@ -1430,7 +1431,7 @@ export function createPublicRoutes(deps) {
       enabled: incomingMiniapp.enabled !== false,
       slug: miniappSlug(incomingMiniapp.slug || client.businessName || client.id),
       customDomain: miniappDomain(incomingMiniapp.customDomain || ''),
-      template: 'clean-retail',
+      template: normalizeMiniappTemplate(incomingMiniapp.template),
       themeColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.themeColor || '')) ? String(incomingMiniapp.themeColor) : '#0f2a52',
       accentColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.accentColor || '')) ? String(incomingMiniapp.accentColor) : '#14b8a6'
     } : currentMiniapp;

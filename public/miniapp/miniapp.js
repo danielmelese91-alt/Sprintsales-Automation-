@@ -209,6 +209,10 @@
     return shop.isCakeShop === true || /cake|bakery|pastry|dessert/.test(text);
   }
 
+  function isEditorialTemplate() {
+    return !isCakeShop() && String((state.shop && state.shop.template) || '') === 'editorial-boutique';
+  }
+
   function isCakeProduct(product) {
     var text = [product && product.category, product && product.subcategory, product && product.name].join(' ').toLowerCase();
     return isCakeShop() || /\b(cakes?|bakery|cupcakes?|pastries?|desserts?|birthday|wedding|fondant|bento)\b/.test(text);
@@ -520,9 +524,10 @@
     var showTelegram = telegram && !isTelegramOpen();
     return '<header class="app-header">' +
       '<div class="header-main">' +
-        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Mini App</small></span></button>' +
+        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>' + (isEditorialTemplate() ? 'Online shop' : 'Mini App') + '</small></span></button>' +
         '<div class="header-icons">' +
           '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '</button>' +
+          (isEditorialTemplate() ? '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '</button>' : '') +
           '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '</button>' +
         '</div>' +
       '</div>' +
@@ -541,10 +546,11 @@
     var showTelegram = telegram && !isTelegramOpen();
     return '<section class="commerce-hero">' +
       '<div class="home-brand-row">' +
-        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Mini App</small></span></button>' +
+        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>' + (isEditorialTemplate() ? 'Online shop' : 'Mini App') + '</small></span></button>' +
         (addressLine ? '<a class="branch-chip" href="' + esc(map) + '" target="_blank" rel="noopener" title="' + esc(shop.addressLine || addressLine) + '">' + svgIcon('location') + ' <span>' + esc(addressLine) + '</span></a>' : '') +
         '<div class="header-icons">' +
           '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '</button>' +
+          (isEditorialTemplate() ? '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '</button>' : '') +
           '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '</button>' +
         '</div>' +
       '</div>' +
@@ -639,6 +645,20 @@
             '<span class="cake-feature-copy"><small>Featured cake</small><b>' + esc(shortText(product.name, 48)) + '</b><em>' + esc(money(product.price)) + '</em></span>' +
           '</button>';
         }).join('') + '</div></div></section>';
+    }
+    if (isEditorialTemplate()) {
+      return '<section class="editorial-featured-section">' +
+        '<div class="editorial-featured-rail">' + products.slice(0, 6).map(function (product, index) {
+          var image = (product.images || [])[0] || '';
+          var label = index === 0 ? 'Featured collection' : 'Selected for you';
+          return '<button class="editorial-feature-card" type="button" data-product-id="' + esc(product.id) + '">' +
+            (image ? '<img src="' + esc(image) + '" alt="' + esc(product.name) + '" loading="' + (index === 0 ? 'eager' : 'lazy') + '">' : '<span class="featured-empty">' + esc(initials(product.name)) + '</span>') +
+            '<span class="editorial-feature-shade"></span>' +
+            '<span class="editorial-feature-copy"><small>' + label + '</small><b>' + esc(shortText(product.name, 52)) + '</b><em>' + esc(money(product.price)) + '</em><strong>Explore</strong></span>' +
+          '</button>';
+        }).join('') + '</div>' +
+        (products.length > 1 ? '<p class="editorial-swipe-note">Swipe to discover more</p>' : '') +
+      '</section>';
     }
     return '<section class="featured-section">' +
       '<div class="section-title compact"><h2>Featured picks</h2><span class="count">Swipe sideways</span></div>' +
@@ -1081,7 +1101,7 @@
         refreshCatalogBody();
       });
     });
-    Array.prototype.forEach.call(document.querySelectorAll('.product-action, .card-open, .featured-card, .cake-feature-card, .promo-banner'), function (button) {
+    Array.prototype.forEach.call(document.querySelectorAll('.product-action, .card-open, .featured-card, .cake-feature-card, .editorial-feature-card, .promo-banner'), function (button) {
       button.addEventListener('click', function () {
         var id = button.getAttribute('data-product-id');
         state.selectedProduct = state.products.find(function (product) { return String(product.id) === String(id); }) || null;
@@ -1617,6 +1637,7 @@
       document.documentElement.style.setProperty('--navy', state.shop.themeColor || '#0f2a52');
       document.documentElement.style.setProperty('--accent', state.shop.accentColor || '#14b8a6');
       document.body.classList.toggle('cake-shop', isCakeShop());
+      document.body.classList.toggle('template-editorial', isEditorialTemplate());
       render();
     } catch (error) {
       fail(error.message);

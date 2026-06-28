@@ -6,6 +6,10 @@ import path from 'node:path';
 import { createMiniappRoutes } from './src/routes/miniapp-routes.js';
 import { createProductService } from './src/services/product-service.js';
 import { defaultSettings, isProductBusiness } from './src/config/defaults.js';
+import {
+  MINIAPP_TEMPLATE_IDS,
+  normalizeMiniappTemplate
+} from './src/config/miniapp-templates.js';
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'sprintsales-miniapp-'));
 const publicDir = path.join(tmp, 'public');
@@ -31,7 +35,7 @@ const client = {
       enabled: true,
       slug: '',
       customDomain: 'shop.example.com',
-      template: 'clean-retail',
+      template: 'editorial-boutique',
       themeColor: '#0f2a52',
       accentColor: '#14b8a6'
     },
@@ -218,6 +222,8 @@ try {
   assert.equal(catalogResponse.status, 200);
   const catalog = await catalogResponse.json();
   assert.equal(catalog.shop.businessName, 'Demo Retail Shop');
+  assert.equal(catalog.shop.template, MINIAPP_TEMPLATE_IDS.EDITORIAL_BOUTIQUE);
+  assert.equal(normalizeMiniappTemplate('not-a-real-template'), MINIAPP_TEMPLATE_IDS.CLEAN_RETAIL);
   assert.equal(catalog.shop.slug, 'demo-retail-shop');
   assert.equal(catalog.shop.botUsername, 'DemoShopBot');
   assert.equal(catalog.shop.mapUrl, 'https://maps.app.goo.gl/examplePin');
@@ -253,6 +259,7 @@ try {
   const cakeCatalogResponse = await fetch(`${base}/api/miniapp/shop/sweet-demo-cakes`);
   assert.equal(cakeCatalogResponse.status, 200);
   const cakeCatalog = await cakeCatalogResponse.json();
+  assert.equal(cakeCatalog.shop.template, MINIAPP_TEMPLATE_IDS.CLEAN_RETAIL);
   assert.equal(cakeCatalog.shop.businessName, 'Sweet Demo Cakes');
   assert.equal(cakeCatalog.shop.isCakeShop, true);
   assert.equal(cakeCatalog.shop.cakeOrderSettings.paymentMode, 'deposit');

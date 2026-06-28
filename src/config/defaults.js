@@ -1,4 +1,5 @@
 import { getRetailCategoryNames } from './retail-templates.js';
+import { MINIAPP_TEMPLATE_IDS } from './miniapp-templates.js';
 
 export const quotas = {
   maxClients: 50,
@@ -105,7 +106,7 @@ export const defaultSettings = () => ({
     enabled: true,
     slug: '',
     customDomain: '',
-    template: 'clean-retail',
+    template: MINIAPP_TEMPLATE_IDS.CLEAN_RETAIL,
     themeColor: '#0f2a52',
     accentColor: '#14b8a6'
   },
