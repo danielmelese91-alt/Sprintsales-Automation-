@@ -2902,7 +2902,12 @@ body.template-editorial {
   --card: #fffefa;
   --editorial-gold: var(--accent);
   --editorial-dark: var(--navy);
-  background: #f5f3eb;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--editorial-gold) 5%, #f8f6f0) 0%,
+      #f5f3eb 46rem
+    );
   color: var(--ink);
 }
 
@@ -2923,10 +2928,10 @@ body.template-editorial .app-header {
   z-index: 35;
   margin: 0 -20px;
   padding: calc(env(safe-area-inset-top, 0px) + 10px) 20px 10px;
-  background: rgba(17, 25, 42, 0.97);
+  background: color-mix(in srgb, var(--editorial-dark) 96%, #000000);
   border: 0;
-  border-bottom: 1px solid rgba(189, 151, 72, 0.34);
-  box-shadow: 0 12px 28px rgba(17, 25, 42, 0.14);
+  border-bottom: 1px solid color-mix(in srgb, var(--editorial-gold) 56%, transparent);
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--editorial-dark) 18%, transparent);
   backdrop-filter: blur(18px);
 }
 
@@ -2962,7 +2967,7 @@ body.template-editorial .brand-button small {
 body.template-editorial .mini-logo {
   width: 40px;
   height: 40px;
-  border: 1px solid rgba(189, 151, 72, 0.7);
+  border: 1px solid color-mix(in srgb, var(--editorial-gold) 76%, #ffffff);
   border-radius: 4px;
   background: #ffffff;
   box-shadow: none;
@@ -2978,8 +2983,8 @@ body.template-editorial .icon-btn {
 }
 
 body.template-editorial .icon-btn:hover {
-  border-color: rgba(189, 151, 72, 0.75);
-  color: #e5c983;
+  border-color: color-mix(in srgb, var(--editorial-gold) 72%, #ffffff);
+  color: color-mix(in srgb, var(--editorial-gold) 45%, #ffffff);
 }
 
 body.template-editorial .branch-chip {
@@ -3005,15 +3010,15 @@ body.template-editorial .search-drawer input {
 body.template-editorial .search-drawer .bot-link {
   border-radius: 3px;
   background: var(--editorial-gold);
-  color: #171914;
+  color: #ffffff;
 }
 
 body.template-editorial .telegram-soft {
   width: min(100%, 1140px);
   margin: 9px auto 0;
   border-radius: 3px;
-  background: rgba(189, 151, 72, 0.14);
-  color: #f0d68f;
+  background: color-mix(in srgb, var(--editorial-gold) 19%, transparent);
+  color: color-mix(in srgb, var(--editorial-gold) 40%, #ffffff);
 }
 
 body.template-editorial .editorial-featured-section {
@@ -3080,7 +3085,7 @@ body.template-editorial .editorial-feature-copy {
 }
 
 body.template-editorial .editorial-feature-copy small {
-  color: #e5c983;
+  color: color-mix(in srgb, var(--editorial-gold) 42%, #ffffff);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 1.8px;
@@ -3206,7 +3211,7 @@ body.template-editorial .promo-banner {
 body.template-editorial .promo-banner strong {
   border-radius: 2px;
   background: var(--editorial-gold);
-  color: #161812;
+  color: #ffffff;
 }
 
 body.template-editorial .subchip,
@@ -3228,7 +3233,7 @@ body.template-editorial .commerce-section-title {
 }
 
 body.template-editorial .commerce-section-title button {
-  color: #886b2d;
+  color: var(--editorial-gold);
 }
 
 body.template-editorial .grid {
@@ -3291,8 +3296,8 @@ body.template-editorial .add-dot {
 
 body.template-editorial .bottom-nav {
   width: min(100%, 1180px);
-  background: rgba(17, 25, 42, 0.97);
-  border-top-color: rgba(189, 151, 72, 0.4);
+  background: color-mix(in srgb, var(--editorial-dark) 96%, #000000);
+  border-top-color: color-mix(in srgb, var(--editorial-gold) 58%, transparent);
 }
 
 body.template-editorial .bottom-nav button {
@@ -3300,12 +3305,12 @@ body.template-editorial .bottom-nav button {
 }
 
 body.template-editorial .bottom-nav button.active {
-  color: #efd58d;
+  color: color-mix(in srgb, var(--editorial-gold) 42%, #ffffff);
 }
 
 body.template-editorial .bottom-nav button.active span {
   border-radius: 3px;
-  background: rgba(189, 151, 72, 0.16);
+  background: color-mix(in srgb, var(--editorial-gold) 22%, transparent);
 }
 
 body.template-editorial .primary-btn,
