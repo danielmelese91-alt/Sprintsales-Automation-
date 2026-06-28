@@ -139,6 +139,7 @@ export const watermarkLayoutForImage = (rawWidth, rawHeight, options = {}) => {
   const width = Math.max(1, Number(rawWidth) || 1);
   const height = Math.max(1, Number(rawHeight) || 1);
   const paddingRatio = Number(options.paddingRatio || 0.035);
+  const bottomFontBase = options.bottomFontScale || clamp(Math.min(width, height * 0.8) * 0.021, 7, 90);
   // Product cards use a 4:5 cover frame. Size and position marks inside that
   // visible frame so landscape and tall portrait uploads look consistent.
   const visibleWidth = Math.min(width, height * 0.8);
@@ -152,7 +153,7 @@ export const watermarkLayoutForImage = (rawWidth, rawHeight, options = {}) => {
     visibleTop,
     padding: Math.round(visibleWidth * paddingRatio),
     centerFont: Math.round(options.centerFontScale || clamp(visibleWidth * 0.027, 8, 120)),
-    bottomFont: Math.round(options.bottomFontScale || clamp(visibleWidth * 0.021, 7, 90))
+    bottomFont: Math.max(5, Math.round(bottomFontBase * 0.75))
   };
 };
 

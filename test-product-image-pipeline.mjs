@@ -73,6 +73,8 @@ try {
   const portraitMark = displayedFontSize(743, 960);
   const landscapeMark = displayedFontSize(960, 493);
   const nearSquareMark = displayedFontSize(960, 918);
+  assert.equal(watermarkLayoutForImage(1000, 1250).bottomFont, 16, 'default bottom watermark should be 25% smaller');
+  assert.equal(watermarkLayoutForImage(1000, 1250, { bottomFontScale: 40 }).bottomFont, 30, 'custom bottom watermark sizing should also be reduced by 25%');
   assert.ok(Math.abs(portraitMark.center - landscapeMark.center) < 1.2, 'center watermark should keep a consistent visual size after 4:5 cover cropping');
   assert.ok(Math.abs(portraitMark.center - nearSquareMark.center) < 1.2, 'center watermark should be consistent on near-square images');
   assert.ok(Math.abs(portraitMark.bottom - landscapeMark.bottom) < 1.2, 'bottom watermark should keep a consistent visual size after 4:5 cover cropping');

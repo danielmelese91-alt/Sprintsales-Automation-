@@ -85,6 +85,7 @@ const bottomTextFor = (client, product) => [
 const data = JSON.parse(await fs.readFile(dataPath, 'utf8'));
 const clientsById = new Map((data.clients || []).map(client => [client.id, client]));
 const cakesOnly = process.argv.includes('--cakes-only');
+const excludeCakes = process.argv.includes('--exclude-cakes');
 let refreshed = 0;
 let skipped = 0;
 
@@ -92,6 +93,7 @@ for (const product of data.products || []) {
   const client = clientsById.get(product.clientId) || {};
   const cakeProduct = isCakeProduct(client, product);
   if (cakesOnly && !cakeProduct) continue;
+  if (excludeCakes && cakeProduct) continue;
   for (const record of imageRecords(product)) {
     const inputPath = resolvePath(record.originalPath);
     const outputPath = resolvePath(record.watermarkedPath) || (inputPath ? watermarkedPathForOriginal(inputPath) : '');
