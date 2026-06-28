@@ -3402,16 +3402,6 @@ body.template-editorial .account-card {
     height: 76px;
   }
 
-  body.template-editorial .checkout-summary div {
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    text-align: center;
-  }
-
-  body.template-editorial .checkout-summary small {
-    text-align: center;
-  }
 }
 
 body.cake-shop .commerce-hero,
@@ -3750,6 +3740,17 @@ body.cake-shop .product-card.cake-product-card .price {
 @media (max-width: 759px) {
   .detail-screen {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 96px);
+  }
+
+  .checkout-summary div {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    text-align: center;
+  }
+
+  .checkout-summary small {
+    text-align: center;
   }
 
   .sticky-buy-bar {
