@@ -1261,9 +1261,9 @@ h1 {
 
 .single-option {
   display: inline-flex;
-  color: #08796d;
-  background: rgba(20, 184, 166, 0.1);
-  border-color: rgba(20, 184, 166, 0.24);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 11%, #ffffff);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
 }
 
 .full {
