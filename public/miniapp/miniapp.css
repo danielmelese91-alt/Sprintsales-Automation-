@@ -3019,6 +3019,7 @@ body.template-editorial .telegram-soft {
 }
 
 body.template-editorial .editorial-featured-section {
+  position: relative;
   margin: 0 -20px 34px;
   overflow: hidden;
 }
@@ -3124,6 +3125,33 @@ body.template-editorial .editorial-swipe-note {
   font-weight: 800;
   letter-spacing: 1px;
   text-transform: uppercase;
+}
+
+body.template-editorial .editorial-feature-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transform: translateX(-50%);
+}
+
+body.template-editorial .editorial-feature-dots button {
+  width: 7px;
+  height: 7px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: width 0.2s ease, background 0.2s ease;
+}
+
+body.template-editorial .editorial-feature-dots button.active {
+  width: 24px;
+  background: var(--editorial-gold);
 }
 
 body.template-editorial .category-browse {

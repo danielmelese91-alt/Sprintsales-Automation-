@@ -22,9 +22,11 @@
     serverOrders: [],
     ordersLoaded: false,
     imageViewer: null,
-    cakeFeaturedIndex: 0
+    cakeFeaturedIndex: 0,
+    editorialFeaturedIndex: 0
   };
   var cakeFeaturedTimer = null;
+  var editorialFeaturedTimer = null;
 
   function esc(value) {
     return String(value == null ? '' : value)
@@ -657,7 +659,9 @@
             '<span class="editorial-feature-copy"><small>' + label + '</small><b>' + esc(shortText(product.name, 52)) + '</b><em>' + esc(money(product.price)) + '</em><strong>Explore</strong></span>' +
           '</button>';
         }).join('') + '</div>' +
-        (products.length > 1 ? '<p class="editorial-swipe-note">Swipe to discover more</p>' : '') +
+        (products.length > 1 ? '<div class="editorial-feature-dots">' + products.slice(0, 6).map(function (_product, index) {
+          return '<button type="button" class="' + (index === Number(state.editorialFeaturedIndex || 0) ? 'active' : '') + '" data-editorial-feature-dot="' + index + '" aria-label="Show featured product ' + (index + 1) + '"></button>';
+        }).join('') + '</div>' : '') +
       '</section>';
     }
     return '<section class="featured-section">' +
@@ -1120,6 +1124,7 @@
       });
     });
     bindCakeFeaturedControls();
+    bindEditorialFeaturedCarousel();
     Array.prototype.forEach.call(document.querySelectorAll('[data-clear-filters]'), function (button) {
       button.addEventListener('click', function () {
         state.category = 'All';
@@ -1200,6 +1205,79 @@
     cakeFeaturedTimer = setInterval(function () {
       setCakeFeaturedIndex(Number(state.cakeFeaturedIndex || 0) + 1);
     }, 4200);
+  }
+
+  function editorialFeaturedCount() {
+    return Math.min(featuredProducts().length, 6);
+  }
+
+  function setEditorialFeaturedIndex(nextIndex, smooth) {
+    var rail = document.querySelector('.editorial-featured-rail');
+    var count = editorialFeaturedCount();
+    if (!rail || count < 1) return;
+    var index = ((Number(nextIndex) || 0) % count + count) % count;
+    state.editorialFeaturedIndex = index;
+    rail.scrollTo({
+      left: index * rail.clientWidth,
+      behavior: smooth === false ? 'auto' : 'smooth'
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-editorial-feature-dot]'), function (dot) {
+      dot.classList.toggle('active', Number(dot.getAttribute('data-editorial-feature-dot') || 0) === index);
+    });
+  }
+
+  function stopEditorialFeaturedCarousel() {
+    if (editorialFeaturedTimer) {
+      clearInterval(editorialFeaturedTimer);
+      editorialFeaturedTimer = null;
+    }
+  }
+
+  function startEditorialFeaturedCarousel() {
+    stopEditorialFeaturedCarousel();
+    var rail = document.querySelector('.editorial-featured-rail');
+    if (!rail || editorialFeaturedCount() < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    editorialFeaturedTimer = setInterval(function () {
+      if (document.hidden) return;
+      setEditorialFeaturedIndex(Number(state.editorialFeaturedIndex || 0) + 1, true);
+    }, 5200);
+  }
+
+  function bindEditorialFeaturedCarousel() {
+    var rail = document.querySelector('.editorial-featured-rail');
+    if (!rail) {
+      stopEditorialFeaturedCarousel();
+      return;
+    }
+    var scrollFrame = null;
+    var pause = function () { stopEditorialFeaturedCarousel(); };
+    var resume = function () { startEditorialFeaturedCarousel(); };
+    rail.addEventListener('pointerenter', pause);
+    rail.addEventListener('pointerleave', resume);
+    rail.addEventListener('touchstart', pause, { passive: true });
+    rail.addEventListener('touchend', resume, { passive: true });
+    rail.addEventListener('focusin', pause);
+    rail.addEventListener('focusout', resume);
+    rail.addEventListener('scroll', function () {
+      if (scrollFrame) cancelAnimationFrame(scrollFrame);
+      scrollFrame = requestAnimationFrame(function () {
+        if (!rail.clientWidth) return;
+        var nextIndex = Math.max(0, Math.min(editorialFeaturedCount() - 1, Math.round(rail.scrollLeft / rail.clientWidth)));
+        state.editorialFeaturedIndex = nextIndex;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-editorial-feature-dot]'), function (dot) {
+          dot.classList.toggle('active', Number(dot.getAttribute('data-editorial-feature-dot') || 0) === nextIndex);
+        });
+      });
+    }, { passive: true });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-editorial-feature-dot]'), function (dot) {
+      dot.addEventListener('click', function (event) {
+        event.stopPropagation();
+        setEditorialFeaturedIndex(Number(dot.getAttribute('data-editorial-feature-dot') || 0), true);
+        startEditorialFeaturedCarousel();
+      });
+    });
+    setEditorialFeaturedIndex(state.editorialFeaturedIndex, false);
+    startEditorialFeaturedCarousel();
   }
 
   function bindDetailEvents() {
