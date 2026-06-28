@@ -14,11 +14,16 @@ import {
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'sprintsales-miniapp-'));
 const publicDir = path.join(tmp, 'public');
 await fs.mkdir(path.join(publicDir, 'miniapp'), { recursive: true });
-await fs.writeFile(path.join(publicDir, 'miniapp', 'index.html'), '<!doctype html><title>MiniApp</title>');
+await fs.writeFile(
+  path.join(publicDir, 'miniapp', 'index.html'),
+  '<!doctype html><title>__SS_TITLE__</title><meta name="description" content="__SS_DESCRIPTION__"><meta property="og:image" content="__SS_IMAGE__"><link rel="canonical" href="__SS_CANONICAL__">'
+);
 
 const client = {
   id: 'client_1',
   businessName: 'Demo Retail Shop',
+  phone: '0911223344',
+  email: 'shop@example.com',
   status: 'active',
   settings: {
     ...defaultSettings(),
@@ -231,6 +236,7 @@ try {
   assert.equal(catalog.shop.slug, 'demo-retail-shop');
   assert.equal(catalog.shop.botUsername, 'DemoShopBot');
   assert.equal(catalog.shop.mapUrl, 'https://maps.app.goo.gl/examplePin');
+  assert.equal(catalog.shop.contactPhone, '0911223344');
   assert.equal(catalog.products.length, 2);
   assert.equal(catalog.products[0].id, 'p_active');
   assert.equal(catalog.products[0].featured, true);
@@ -259,6 +265,24 @@ try {
   assert.equal(platformSubdomainResponse.status, 200);
   const platformSubdomainCatalog = await platformSubdomainResponse.json();
   assert.equal(platformSubdomainCatalog.shop.businessName, 'Demo Retail Shop');
+
+  const productPageResponse = await fetch(`${base}/shop/demo-retail-shop/product/SW-200`);
+  assert.equal(productPageResponse.status, 200);
+  const productPageHtml = await productPageResponse.text();
+  assert.match(productPageHtml, /<title>Smart Fitness Watch \| Demo Retail Shop<\/title>/);
+  assert.match(productPageHtml, /View details and order online/);
+  assert.match(productPageHtml, /watch\.watermarked-1\.jpg/);
+  assert.match(productPageHtml, /\/shop\/demo-retail-shop\/product\/SW-200/);
+
+  const hostProductPageResponse = await fetch(`${base}/product/SW-200`, {
+    headers: {
+      'X-Forwarded-Host': 'shop.example.com',
+      'X-Forwarded-Proto': 'https'
+    }
+  });
+  assert.equal(hostProductPageResponse.status, 200);
+  const hostProductPageHtml = await hostProductPageResponse.text();
+  assert.match(hostProductPageHtml, /https:\/\/shop\.example\.com\/product\/SW-200/);
 
   const cakeCatalogResponse = await fetch(`${base}/api/miniapp/shop/sweet-demo-cakes`);
   assert.equal(cakeCatalogResponse.status, 200);

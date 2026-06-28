@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { miniappTemplateForClient } from '../config/miniapp-templates.js';
 import { websiteThemeForClient } from '../config/retail-themes.js';
 
@@ -18,6 +19,23 @@ const cleanHost = value => String(value || '')
   .split(':')[0]
   .replace(/^www\./, '')
   .trim();
+
+const escapeHtml = value => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;');
+
+const absoluteUrl = (value, origin) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    return new URL(text, origin).toString();
+  } catch {
+    return '';
+  }
+};
 
 const requestHost = req => String(req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
 
@@ -650,6 +668,8 @@ export function createMiniappRoutes(deps) {
     activeClientProducts
   } = deps;
   const router = Router();
+  const shellPath = path.join(publicDir, 'miniapp', 'index.html');
+  let shellTemplatePromise = null;
 
   const privateOwnerChatId = client => {
     const settings = client?.settings || {};
@@ -855,9 +875,87 @@ export function createMiniappRoutes(deps) {
     return intent;
   };
 
-  const sendMiniappShell = (res) => {
+  const requestOrigin = req => {
+    const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim();
+    const protocol = forwardedProto || req.protocol || 'https';
+    return `${protocol}://${requestHost(req)}`;
+  };
+
+  const productTokenFromRequest = req => {
+    const queryToken = String(req.query?.product || req.query?.p || '').trim();
+    if (queryToken) return queryToken;
+    const parts = String(req.path || '').split('/').filter(Boolean);
+    const index = parts.indexOf('product');
+    return index >= 0 ? decodeURIComponent(parts[index + 1] || '') : '';
+  };
+
+  const productMatchesToken = (product, token) => {
+    const key = String(token || '').trim().toLowerCase();
+    if (!key) return false;
+    return [
+      product?.id,
+      product?.code,
+      product?.productCode,
+      product?.product_code,
+      slugify(product?.name)
+    ].some(value => String(value || '').trim().toLowerCase() === key);
+  };
+
+  const shellMetadata = (req, client = null, data = null) => {
+    const origin = requestOrigin(req);
+    const canonicalUrl = new URL(req.path || '/', origin);
+    const canonical = canonicalUrl.toString();
+    const settings = client ? clientMiniappSettings(client) : null;
+    const products = client && data
+      ? (activeClientProducts ? activeClientProducts(data, client.id) : (data.products || []).filter(product => product.clientId === client.id))
+        .filter(productAllowsCatalog)
+      : [];
+    const product = products.find(item => productMatchesToken(item, productTokenFromRequest(req))) || null;
+    const businessName = client?.businessName || 'SprintSales Shop';
+    const productName = product?.name || '';
+    const title = productName ? `${productName} | ${businessName}` : `${businessName} Online Shop`;
+    const description = productName
+      ? clampText(product.description || `${productName} is available from ${businessName}. View details and order online.`, 180)
+      : clampText(
+        client?.settings?.businessProfile?.summary ||
+        client?.settings?.businessProfile?.firstTimeWelcomeMessage ||
+        `Browse available products and order directly from ${businessName}.`,
+        180
+      );
+    const productImage = product ? imageRecords(product)[0] : null;
+    const image = absoluteUrl(
+      productImage
+        ? imageUrlForPath(product.clientId, productImage.publicPath || productImage.watermarkedPath)
+        : client?.settings?.businessLogoUrl,
+      origin
+    );
+    return {
+      title,
+      description,
+      image,
+      canonical,
+      siteName: businessName,
+      themeColor: settings?.themeColor || '#173b67'
+    };
+  };
+
+  const sendMiniappShell = async (req, res, client = null, data = null) => {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-    res.sendFile(path.join(publicDir, 'miniapp', 'index.html'));
+    shellTemplatePromise ||= fs.readFile(shellPath, 'utf8');
+    const meta = shellMetadata(req, client, data);
+    const replacements = {
+      '__SS_TITLE__': meta.title,
+      '__SS_DESCRIPTION__': meta.description,
+      '__SS_IMAGE__': meta.image,
+      '__SS_CANONICAL__': meta.canonical,
+      '__SS_SITE_NAME__': meta.siteName,
+      '__SS_THEME_COLOR__': meta.themeColor
+    };
+    let html = await shellTemplatePromise;
+    Object.entries(replacements).forEach(([token, value]) => {
+      html = html.split(token).join(escapeHtml(value));
+    });
+    res.type('html').send(html);
   };
 
   router.get('/', async (req, res, next) => {
@@ -867,7 +965,7 @@ export function createMiniappRoutes(deps) {
     const settings = client ? clientMiniappSettings(client) : null;
     const hasShopHost = Boolean(settings?.customDomain) || Boolean(platformSubdomainSlug(host));
     if (!client || !hasShopHost || !isProductBusiness(client)) return next();
-    return sendMiniappShell(res);
+    return sendMiniappShell(req, res, client, data);
   });
 
   router.get('/api/miniapp/shop/:slug', async (req, res) => {
@@ -898,6 +996,8 @@ export function createMiniappRoutes(deps) {
         mapUrl: publicMapUrl(client),
         summary: publicShopText(client.settings?.businessProfile?.summary),
         firstTimeWelcomeMessage: publicShopText(client.settings?.businessProfile?.firstTimeWelcomeMessage),
+        contactPhone: publicShopText(client.phone),
+        channelUrl: publicShopText(client.settings?.telegramChannelLink),
         botUsername,
         template: settings.template,
         themeColor: settings.themeColor,
@@ -1400,8 +1500,18 @@ export function createMiniappRoutes(deps) {
     });
   });
 
-  router.get(/^\/shop\/[^/]+(?:\/.*)?$/, (req, res) => {
-    sendMiniappShell(res);
+  router.get(/^\/product\/[^/]+\/?$/, async (req, res, next) => {
+    const data = await readData();
+    const client = findClientForMiniapp(data, '_host', requestHost(req));
+    if (!client || !isProductBusiness(client)) return next();
+    return sendMiniappShell(req, res, client, data);
+  });
+
+  router.get(/^\/shop\/[^/]+(?:\/.*)?$/, async (req, res) => {
+    const data = await readData();
+    const parts = String(req.path || '').split('/').filter(Boolean);
+    const client = findClientForMiniapp(data, parts[1] || '', requestHost(req));
+    return sendMiniappShell(req, res, client, data);
   });
 
   return router;

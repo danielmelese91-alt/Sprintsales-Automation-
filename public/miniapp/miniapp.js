@@ -23,7 +23,8 @@
     ordersLoaded: false,
     imageViewer: null,
     cakeFeaturedIndex: 0,
-    editorialFeaturedIndex: 0
+    editorialFeaturedIndex: 0,
+    navigationReady: false
   };
   var cakeFeaturedTimer = null;
   var editorialFeaturedTimer = null;
@@ -41,6 +42,105 @@
     var parts = location.pathname.split('/').filter(Boolean);
     var index = parts.indexOf('shop');
     return index >= 0 ? decodeURIComponent(parts[index + 1] || '') : '_host';
+  }
+
+  function baseShopPath() {
+    var parts = location.pathname.split('/').filter(Boolean);
+    var index = parts.indexOf('shop');
+    return index >= 0 ? '/shop/' + encodeURIComponent(parts[index + 1] || slugFromPath()) : '/';
+  }
+
+  function productKey(product) {
+    return String((product && (product.code || product.id)) || '').trim();
+  }
+
+  function productPath(product) {
+    var key = encodeURIComponent(productKey(product));
+    var base = baseShopPath().replace(/\/$/, '');
+    return (base || '') + '/product/' + key;
+  }
+
+  function productFromLocation() {
+    var parts = location.pathname.split('/').filter(Boolean);
+    var index = parts.indexOf('product');
+    var token = index >= 0 ? decodeURIComponent(parts[index + 1] || '') : new URLSearchParams(location.search).get('product');
+    token = String(token || '').trim().toLowerCase();
+    if (!token) return null;
+    return state.products.find(function (product) {
+      return [product.id, product.code].some(function (value) {
+        return String(value || '').trim().toLowerCase() === token;
+      });
+    }) || null;
+  }
+
+  function storefrontUrl() {
+    var url = new URL(baseShopPath(), location.origin);
+    if (state.selectedProduct) return new URL(productPath(state.selectedProduct), location.origin);
+    if (state.view === 'account') url.searchParams.set('view', 'account');
+    if (state.view === 'track') url.searchParams.set('view', 'orders');
+    if (state.query) url.searchParams.set('search', state.query);
+    return url;
+  }
+
+  function updateDocumentMetadata() {
+    if (!state.shop) return;
+    var product = state.selectedProduct;
+    var shopName = state.shop.businessName || 'SprintSales Shop';
+    var title = product ? product.name + ' | ' + shopName : (/\bshop\b/i.test(shopName) ? shopName : shopName + ' Shop');
+    var description = product
+      ? shortText(product.description || (product.name + ' is available from ' + shopName + '.'), 180)
+      : shortText(state.shop.summary || state.shop.firstTimeWelcomeMessage || ('Browse available items from ' + shopName + '.'), 180);
+    var image = product && product.images && product.images[0] ? new URL(product.images[0], location.origin).toString() : (state.shop.logoUrl ? new URL(state.shop.logoUrl, location.origin).toString() : '');
+    var canonical = storefrontUrl().toString();
+    document.title = title;
+    [
+      ['meta[name="description"]', 'content', description],
+      ['meta[property="og:title"]', 'content', title],
+      ['meta[property="og:description"]', 'content', description],
+      ['meta[property="og:image"]', 'content', image],
+      ['meta[property="og:url"]', 'content', canonical],
+      ['meta[name="twitter:title"]', 'content', title],
+      ['meta[name="twitter:description"]', 'content', description],
+      ['meta[name="twitter:image"]', 'content', image],
+      ['link[rel="canonical"]', 'href', canonical]
+    ].forEach(function (entry) {
+      var node = document.querySelector(entry[0]);
+      if (node) node.setAttribute(entry[1], entry[2]);
+    });
+  }
+
+  function syncHistory(mode) {
+    if (!state.navigationReady) return;
+    var method = mode === 'replace' ? 'replaceState' : 'pushState';
+    history[method]({ sprintSales: true }, '', storefrontUrl());
+    updateDocumentMetadata();
+  }
+
+  function applyLocationState() {
+    var params = new URLSearchParams(location.search);
+    var product = productFromLocation();
+    state.selectedProduct = product;
+    state.selectedImage = 0;
+    state.orderResult = null;
+    state.paymentProofResult = null;
+    state.trackError = '';
+    state.trackResult = null;
+    state.query = params.get('search') || '';
+    state.searchOpen = Boolean(state.query);
+    var view = String(params.get('view') || '').toLowerCase();
+    state.view = view === 'account' ? 'account' : (view === 'orders' || view === 'track' ? 'track' : 'catalog');
+    if (product) state.view = 'catalog';
+  }
+
+  function openProduct(product, mode) {
+    state.selectedProduct = product || null;
+    state.selectedImage = 0;
+    state.orderResult = null;
+    state.paymentProofResult = null;
+    state.view = 'catalog';
+    syncHistory(mode);
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function storageKey(suffix) {
@@ -384,6 +484,7 @@
     var icons = {
       search: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="M16 16l4 4"></path></svg>',
       user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1.8-4 14.2-4 16 0"></path></svg>',
+      share: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="M8.3 10.8l7.4-4.4M8.3 13.2l7.4 4.4"></path></svg>',
       home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>',
       orders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10v16H7z"></path><path d="M9 8h6M9 12h6M9 16h4"></path></svg>',
       settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M19.1 4.9l-2.8 2.8M7.7 16.3l-2.8 2.8"></path></svg>',
@@ -541,9 +642,9 @@
       '<div class="header-main">' +
         '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Online shop</small></span></button>' +
         '<div class="header-icons">' +
-          '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '<span class="desktop-action-label">Search</span></button>' +
-          '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '<span class="desktop-action-label">Orders</span></button>' +
-          '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '<span class="desktop-action-label">Account</span></button>' +
+          '<button class="icon-btn" type="button" data-toggle-search title="Search" aria-label="Search shop">' + svgIcon('search') + '<span class="desktop-action-label">Search</span></button>' +
+          '<button class="icon-btn" type="button" data-view="track" title="My orders" aria-label="View my orders">' + svgIcon('orders') + '<span class="desktop-action-label">Orders</span></button>' +
+          '<button class="icon-btn" type="button" data-view="account" title="My account" aria-label="View my account">' + svgIcon('user') + '<span class="desktop-action-label">Account</span></button>' +
         '</div>' +
       '</div>' +
       (state.searchOpen ? '<div class="search-drawer"><input id="search-input" value="' + esc(state.query) + '" placeholder="Search name, code, color, size"><button class="bot-link" type="button" data-search-submit>Search</button></div>' : '') +
@@ -564,9 +665,9 @@
         '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Online shop</small></span></button>' +
         (addressLine ? '<a class="branch-chip" href="' + esc(map) + '" target="_blank" rel="noopener" title="' + esc(shop.addressLine || addressLine) + '">' + svgIcon('location') + ' <span>' + esc(addressLine) + '</span></a>' : '') +
         '<div class="header-icons">' +
-          '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '<span class="desktop-action-label">Search</span></button>' +
-          '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '<span class="desktop-action-label">Orders</span></button>' +
-          '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '<span class="desktop-action-label">Account</span></button>' +
+          '<button class="icon-btn" type="button" data-toggle-search title="Search" aria-label="Search shop">' + svgIcon('search') + '<span class="desktop-action-label">Search</span></button>' +
+          '<button class="icon-btn" type="button" data-view="track" title="My orders" aria-label="View my orders">' + svgIcon('orders') + '<span class="desktop-action-label">Orders</span></button>' +
+          '<button class="icon-btn" type="button" data-view="account" title="My account" aria-label="View my account">' + svgIcon('user') + '<span class="desktop-action-label">Account</span></button>' +
         '</div>' +
       '</div>' +
       (state.searchOpen ? '<div class="search-drawer home-drawer"><input id="search-input" value="' + esc(state.query) + '" placeholder="Search name, code, color, size"><button class="bot-link" type="button" data-search-submit>Search</button></div>' : '') +
@@ -603,12 +704,59 @@
   }
 
   function renderBottomNav() {
-    return '<nav class="bottom-nav">' +
+    return '<nav class="bottom-nav" aria-label="Shop navigation">' +
       '<button class="' + activeClass('catalog') + '" type="button" data-view="catalog"><span>' + svgIcon('home') + '</span><b>Home</b></button>' +
       '<button type="button" data-toggle-search><span>' + svgIcon('search') + '</span><b>Search</b></button>' +
       '<button class="' + activeClass('track') + '" type="button" data-view="track"><span>' + svgIcon('orders') + '</span><b>Orders</b></button>' +
       '<button class="' + activeClass('account') + '" type="button" data-view="account"><span>' + svgIcon('user') + '</span><b>Profile</b></button>' +
     '</nav>';
+  }
+
+  function safeExternalUrl(value) {
+    var text = String(value || '').trim();
+    if (!text) return '';
+    if (/^@[\w_]+$/.test(text)) return 'https://t.me/' + text.slice(1);
+    if (/^[\w_]+$/.test(text)) return 'https://t.me/' + text;
+    try {
+      var url = new URL(text, location.origin);
+      return /^https?:$/.test(url.protocol) ? url.toString() : '';
+    } catch (error) {
+      return '';
+    }
+  }
+
+  function renderTrustFooter() {
+    var shop = state.shop || {};
+    var telegram = botUrl();
+    var channel = safeExternalUrl(shop.channelUrl);
+    var map = shop.mapUrl || mapsUrl(shop.addressLine || '');
+    var phone = String(shop.contactPhone || '').trim();
+    var links = [
+      map ? '<a href="' + esc(map) + '" target="_blank" rel="noopener">' + svgIcon('location') + '<span>Find us</span></a>' : '',
+      telegram ? '<a href="' + esc(telegram) + '" target="_blank" rel="noopener">' + svgIcon('shop') + '<span>Telegram shop</span></a>' : '',
+      channel ? '<a href="' + esc(channel) + '" target="_blank" rel="noopener">' + svgIcon('phone') + '<span>Updates</span></a>' : '',
+      phone ? '<a href="tel:' + esc(phone.replace(/[^\d+]/g, '')) + '">' + svgIcon('phone') + '<span>Call shop</span></a>' : ''
+    ].filter(Boolean).join('');
+    return '<footer class="storefront-footer">' +
+      '<div class="footer-brand"><b>' + esc(shop.businessName || 'Online shop') + '</b><p>' +
+        esc(shortText(shop.summary || shop.firstTimeWelcomeMessage || 'Browse, order, and follow your purchase from this shop.', 150)) +
+      '</p>' + (shop.addressLine ? '<small>' + esc(shop.addressLine) + '</small>' : '') + '</div>' +
+      (links ? '<nav class="footer-links" aria-label="Shop contact links">' + links + '</nav>' : '') +
+      '<div class="footer-bottom"><span>Orders and updates are managed through this shop.</span><b>Powered by SprintSales</b></div>' +
+    '</footer>';
+  }
+
+  function renderCheckoutProgress(step) {
+    var steps = [
+      { key: 'details', label: 'Details' },
+      { key: 'payment', label: 'Payment' },
+      { key: 'confirmed', label: 'Confirmed' }
+    ];
+    var activeIndex = Math.max(0, steps.findIndex(function (item) { return item.key === step; }));
+    return '<ol class="checkout-progress" aria-label="Checkout progress">' + steps.map(function (item, index) {
+      var status = index < activeIndex ? 'complete' : (index === activeIndex ? 'active' : '');
+      return '<li class="' + status + '" ' + (index === activeIndex ? 'aria-current="step"' : '') + '><span>' + (index < activeIndex ? '&#10003;' : (index + 1)) + '</span><b>' + item.label + '</b></li>';
+    }).join('') + '</ol>';
   }
 
   function featuredProducts() {
@@ -695,7 +843,7 @@
       ? '<img src="' + esc(images[0]) + '" alt="' + esc(product.name) + '" loading="lazy">'
       : '<div class="photo-placeholder">No Image</div>';
     return '<article class="product-card compact-product ' + (cake ? 'cake-product-card' : '') + '">' +
-      '<button class="photo-wrap card-open" type="button" data-product-id="' + esc(product.id) + '">' + photo + (images.length > 1 ? '<span class="image-count">' + images.length + '</span>' : '') + '</button>' +
+      '<button class="photo-wrap card-open" type="button" data-product-id="' + esc(product.id) + '" aria-label="View ' + esc(product.name) + '">' + photo + (images.length > 1 ? '<span class="image-count">' + images.length + '</span>' : '') + '</button>' +
       '<button class="product-body product-action" type="button" data-product-id="' + esc(product.id) + '">' +
         '<h3 class="product-name">' + esc(shortText(product.name, cake ? 56 : 28)) + '</h3>' +
         '<p class="card-desc">' + esc(shortText(product.description || product.subcategory || product.category || 'Available now', cake ? 118 : 74)) + '</p>' +
@@ -775,9 +923,6 @@
     var discount = percentOff(product);
     var telegram = botUrl(product);
     var cakeProduct = isCakeProduct(product);
-    var specPreview = specGroups.map(function (group) {
-      return '<div><span>' + esc(group.label) + '</span><b>' + esc((group.values || []).slice(0, 4).join(', ') || 'Available') + '</b></div>';
-    }).join('');
     var codeBadge = (!cakeProduct && product.code) ? '<span>' + esc(product.code) + '</span>' : '';
     var codeFact = (!cakeProduct && product.code) ? '<div><span>Code</span><b>' + esc(product.code) + '</b></div>' : '';
     var cakeFields = cakeProduct
@@ -789,7 +934,7 @@
         '<div class="detail-gallery">' +
           (activeImage ? '<button class="detail-image-button" type="button" data-open-image="' + esc(activeImage) + '"><img class="detail-image" src="' + esc(activeImage) + '" alt="' + esc(product.name) + '"></button>' : '<div class="detail-image empty-image">No Image</div>') +
           (images.length > 1 ? '<div class="thumb-row">' + images.map(function (url, index) {
-            return '<button class="thumb ' + (index === state.selectedImage ? 'active' : '') + '" type="button" data-thumb="' + index + '"><img src="' + esc(url) + '" alt=""></button>';
+            return '<button class="thumb ' + (index === state.selectedImage ? 'active' : '') + '" type="button" data-thumb="' + index + '" aria-label="View ' + esc(product.name) + ' photo ' + (index + 1) + '"><img src="' + esc(url) + '" alt="' + esc(product.name) + ' photo ' + (index + 1) + '"></button>';
           }).join('') + '</div>' : '') +
         '</div>' +
       '</section>' +
@@ -798,14 +943,15 @@
           '<p class="eyebrow">' + esc(product.category || 'Item') + (product.subcategory ? ' / ' + esc(product.subcategory) : '') + '</p>' +
           '<h2>' + esc(product.name) + '</h2>' +
           '<div class="detail-price-row"><div><strong>' + esc(money(product.price)) + '</strong>' + (moneyNumber(product.compareAtPrice) > moneyNumber(product.price) ? '<del>' + esc(money(product.compareAtPrice)) + '</del>' : '') + '</div>' + codeBadge + '</div>' +
+          '<button class="share-product-btn" type="button" data-share-product aria-label="Share ' + esc(product.name) + '">' + svgIcon('share') + '<span>Share this item</span></button>' +
           '<div class="product-facts">' +
             codeFact +
             '<div><span>Status</span><b>' + esc(product.availability || 'Available') + '</b></div>' +
             (discount ? '<div><span>Offer</span><b>' + discount + '% off</b></div>' : '') +
           '</div>' +
           (product.description ? '<p class="detail-desc">' + esc(product.description) + '</p>' : '') +
-          (specPreview ? '<div class="spec-preview">' + specPreview + '</div>' : '') +
           (telegram && !isTelegramOpen() ? '<div class="telegram-nudge"><div><b>For a better experience</b><span>Open this item in Telegram for faster support and saved chat history.</span></div><a href="' + esc(telegram) + '" target="_blank" rel="noopener">Open Telegram</a></div>' : '') +
+          renderCheckoutProgress('details') +
           '<div class="order-card-title"><h3>Order this item</h3><p>Your saved account details are filled automatically.</p></div>' +
           '<form id="miniapp-order-form" class="checkout-form">' +
             '<div id="order-form-alert" class="form-alert" hidden></div>' +
@@ -836,6 +982,7 @@
     var paymentOnDelivery = String(order.paymentMode || payment.collectionMode || '').toLowerCase() === 'delivery' || (!payment.ready && moneyNumber(payment.amount) <= 0 && !order.awaitingDeliveryFee);
     return '<main class="screen result-page">' +
       '<section class="result-panel">' +
+        renderCheckoutProgress(paymentComplete || paymentOnDelivery ? 'confirmed' : 'payment') +
         '<div class="success-mark">' + (paymentComplete || paymentOnDelivery ? '✓' : 'Pay') + '</div>' +
         '<h2>' + (paymentComplete ? (depositOrder ? 'Kabd received' : 'Payment complete') : (paymentOnDelivery ? 'Order received' : 'Complete your payment')) + '</h2>' +
         '<p class="result-lead">' + (paymentComplete
@@ -952,11 +1099,16 @@
 
   function render() {
     var shouldShowBottomNav = !state.selectedProduct && !state.orderResult;
-    app.innerHTML = renderAppHeader() + currentBody() + (shouldShowBottomNav ? renderBottomNav() : '') + renderImageViewer();
+    app.innerHTML = renderAppHeader() +
+      '<div id="storefront-content" tabindex="-1">' + currentBody() + '</div>' +
+      renderTrustFooter() +
+      (shouldShowBottomNav ? renderBottomNav() : '') +
+      renderImageViewer();
+    updateDocumentMetadata();
     bindEvents();
   }
 
-  function setView(view) {
+  function setView(view, historyMode) {
     state.view = view || 'catalog';
     state.selectedProduct = null;
     state.orderResult = null;
@@ -970,6 +1122,7 @@
       state.query = '';
       state.searchOpen = false;
     }
+    syncHistory(historyMode);
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -982,6 +1135,7 @@
     bindSearchBoxEvents();
     bindCatalogEvents();
     bindToolbarEvents();
+    bindImageFallbacks();
     startCakeFeaturedCarousel();
   }
 
@@ -998,6 +1152,7 @@
           state.query = search.value;
           search.blur();
           if (state.query) void trackMiniappEvent('search', { query: state.query });
+          syncHistory();
           render();
         }
       });
@@ -1012,6 +1167,7 @@
           currentSearch.blur();
         }
         if (state.query) void trackMiniappEvent('search', { query: state.query });
+        syncHistory();
         render();
       });
     }
@@ -1029,6 +1185,7 @@
         state.view = 'catalog';
         state.selectedProduct = null;
         state.orderResult = null;
+        syncHistory();
         render();
         var search = document.getElementById('search-input');
         if (search) setTimeout(function () { search.focus(); }, 50);
@@ -1041,6 +1198,61 @@
     bindOrderEvents();
     bindAccountEvents();
     bindImageViewerEvents();
+    bindShareEvents();
+    bindImageFallbacks();
+  }
+
+  function bindShareEvents() {
+    var button = document.querySelector('[data-share-product]');
+    if (!button || !state.selectedProduct) return;
+    button.addEventListener('click', async function () {
+      var product = state.selectedProduct;
+      var url = new URL(productPath(product), location.origin).toString();
+      var shareData = {
+        title: product.name + ' | ' + (state.shop.businessName || 'Shop'),
+        text: product.name + ' - ' + money(product.price),
+        url: url
+      };
+      try {
+        if (navigator.share) {
+          await navigator.share(shareData);
+        } else {
+          await navigator.clipboard.writeText(url);
+          button.classList.add('copied');
+          button.querySelector('span').textContent = 'Link copied';
+          setTimeout(function () {
+            if (!button.isConnected) return;
+            button.classList.remove('copied');
+            button.querySelector('span').textContent = 'Share this item';
+          }, 1600);
+        }
+        void trackMiniappEvent('product_shared', { productId: product.id, productCode: product.code });
+      } catch (error) {
+        if (error && error.name === 'AbortError') return;
+        button.querySelector('span').textContent = 'Copy this link: ' + url;
+      }
+    });
+  }
+
+  function bindImageFallbacks() {
+    Array.prototype.forEach.call(document.querySelectorAll('img'), function (image) {
+      if (image.dataset.fallbackBound) return;
+      image.dataset.fallbackBound = '1';
+      var showFallback = function () {
+        image.classList.add('is-broken');
+        var parent = image.parentElement;
+        if (!parent || parent.querySelector('.image-fallback')) return;
+        var fallback = document.createElement('span');
+        fallback.className = image.classList.contains('mini-logo')
+          ? 'image-fallback logo-image-fallback mini-logo'
+          : 'image-fallback';
+        fallback.setAttribute('aria-hidden', 'true');
+        fallback.textContent = initials(image.alt || state.shop && state.shop.businessName || 'Shop');
+        parent.insertBefore(fallback, image);
+      };
+      image.addEventListener('error', showFallback, { once: true });
+      if (image.complete && image.naturalWidth === 0) showFallback();
+    });
   }
 
   function bindImageViewerEvents() {
@@ -1121,19 +1333,16 @@
     Array.prototype.forEach.call(document.querySelectorAll('.product-action, .card-open, .featured-card, .cake-feature-card, .editorial-feature-card, .promo-banner'), function (button) {
       button.addEventListener('click', function () {
         var id = button.getAttribute('data-product-id');
-        state.selectedProduct = state.products.find(function (product) { return String(product.id) === String(id); }) || null;
-        state.selectedImage = 0;
-        state.view = 'catalog';
-        if (state.selectedProduct) {
+        var product = state.products.find(function (item) { return String(item.id) === String(id); }) || null;
+        if (product) {
           void trackMiniappEvent('product_view', {
-            productId: state.selectedProduct.id,
-            productCode: state.selectedProduct.code,
-            category: state.selectedProduct.category,
-            subcategory: state.selectedProduct.subcategory
+            productId: product.id,
+            productCode: product.code,
+            category: product.category,
+            subcategory: product.subcategory
           });
         }
-        render();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        openProduct(product);
       });
     });
     bindCakeFeaturedControls();
@@ -1145,6 +1354,7 @@
         state.saleOnly = false;
         state.query = '';
         state.searchOpen = false;
+        syncHistory();
         render();
       });
     });
@@ -1296,10 +1506,7 @@
   function bindDetailEvents() {
     var detailBack = document.getElementById('detail-back');
     if (detailBack) detailBack.addEventListener('click', function () {
-      state.selectedProduct = null;
-      state.selectedImage = 0;
-      render();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setView('catalog');
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-thumb]'), function (button) {
       button.addEventListener('click', function () {
@@ -1336,13 +1543,7 @@
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-back-products]'), function (button) {
       button.addEventListener('click', function () {
-        state.orderResult = null;
-        state.paymentProofResult = null;
-        state.selectedProduct = null;
-        state.selectedImage = 0;
-        state.view = 'catalog';
-        render();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setView('catalog');
       });
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-track-current]'), function (button) {
@@ -1409,6 +1610,7 @@
         state.trackResult = null;
         state.trackError = '';
         state.view = 'track';
+        syncHistory();
         render();
         var code = button.getAttribute('data-history-track') || '';
         var phone = button.getAttribute('data-history-phone') || '';
@@ -1704,7 +1906,14 @@
   }
 
   function fail(message) {
-    app.innerHTML = '<section class="error-card"><div><h1>Shop unavailable</h1><p>' + esc(message || 'Please try again later.') + '</p></div></section>';
+    app.innerHTML = '<section class="error-card" role="alert"><div><span class="error-symbol">!</span><h1>Shop unavailable</h1><p>' +
+      esc(message || 'Please try again later.') +
+      '</p><button class="primary-btn" type="button" id="retry-shop">Try again</button></div></section>';
+    var retry = document.getElementById('retry-shop');
+    if (retry) retry.addEventListener('click', function () {
+      app.innerHTML = '<section class="storefront-skeleton" aria-live="polite" aria-busy="true"><div class="skeleton-header"><span></span><span></span></div><div class="skeleton-hero"></div><div class="skeleton-row"><span></span><span></span><span></span><span></span></div><p>Opening shop...</p></section>';
+      void boot();
+    });
   }
 
   async function boot() {
@@ -1719,12 +1928,11 @@
       state.shop = data.shop || {};
       state.categories = data.categories || [];
       state.products = data.products || [];
+      applyLocationState();
       loadAccount();
       syncAccount(state.account);
       await syncOrders(false);
       void trackMiniappEvent('shop_open');
-      var titleName = state.shop.businessName || 'SprintSales';
-      document.title = /\bshop\b/i.test(titleName) ? titleName : titleName + ' Shop';
       document.body.classList.toggle('cake-shop', isCakeShop());
       document.body.classList.toggle('template-editorial', isEditorialTemplate());
       document.body.classList.add('retail-' + retailStyleKey());
@@ -1734,11 +1942,20 @@
       document.documentElement.style.setProperty('--accent', websiteAccentColor);
       document.body.style.setProperty('--navy', websiteMainColor);
       document.body.style.setProperty('--accent', websiteAccentColor);
+      state.navigationReady = true;
+      history.replaceState({ sprintSales: true }, '', storefrontUrl());
       render();
     } catch (error) {
       fail(error.message);
     }
   }
+
+  window.addEventListener('popstate', function () {
+    if (!state.shop) return;
+    applyLocationState();
+    render();
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  });
 
   boot();
 })();
