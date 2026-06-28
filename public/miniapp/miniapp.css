@@ -3252,6 +3252,8 @@ body.template-editorial .compact-product .photo-wrap {
 
 body.template-editorial .compact-product .product-body {
   padding: 14px 0 0;
+  justify-items: center;
+  text-align: center;
 }
 
 body.template-editorial .compact-product .product-name {
@@ -3266,6 +3268,13 @@ body.template-editorial .compact-product p {
   max-width: 62ch;
   color: #73736c;
   font-size: 13px;
+  text-align: center;
+}
+
+body.template-editorial .compact-product .price-row {
+  position: relative;
+  width: 100%;
+  justify-content: center;
 }
 
 body.template-editorial .compact-product .price {
@@ -3274,6 +3283,8 @@ body.template-editorial .compact-product .price {
 }
 
 body.template-editorial .add-dot {
+  position: absolute;
+  right: 0;
   border: 1px solid #c9c4b6;
   border-radius: 2px;
   background: transparent;
@@ -3389,6 +3400,17 @@ body.template-editorial .account-card {
   body.template-editorial .tile-icon {
     width: 76px;
     height: 76px;
+  }
+
+  body.template-editorial .checkout-summary div {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    text-align: center;
+  }
+
+  body.template-editorial .checkout-summary small {
+    text-align: center;
   }
 }
 

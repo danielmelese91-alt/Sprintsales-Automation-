@@ -135,23 +135,50 @@ const vectorTextSvg = ({ text, x, y, fontSize, fill, shadow, anchor = 'middle', 
   </g>`;
 };
 
-const watermarkSvg = ({ width, height, centerText, bottomText, bottomLogoSpace = 0, centerColor, bottomColor, options }) => {
-  const padding = Math.round(Math.min(width, height) * options.paddingRatio);
-  const centerFont = Math.round(options.centerFontScale || clamp(width * 0.027, 12, 32));
-  const bottomFont = Math.round(options.bottomFontScale || clamp(width * 0.021, 10, 23));
-  const centerMax = width * 0.86;
+export const watermarkLayoutForImage = (rawWidth, rawHeight, options = {}) => {
+  const width = Math.max(1, Number(rawWidth) || 1);
+  const height = Math.max(1, Number(rawHeight) || 1);
+  const paddingRatio = Number(options.paddingRatio || 0.035);
+  // Product cards use a 4:5 cover frame. Size and position marks inside that
+  // visible frame so landscape and tall portrait uploads look consistent.
+  const visibleWidth = Math.min(width, height * 0.8);
+  const visibleHeight = visibleWidth * 1.25;
+  const visibleLeft = (width - visibleWidth) / 2;
+  const visibleTop = (height - visibleHeight) / 2;
+  return {
+    visibleWidth,
+    visibleHeight,
+    visibleLeft,
+    visibleTop,
+    padding: Math.round(visibleWidth * paddingRatio),
+    centerFont: Math.round(options.centerFontScale || clamp(visibleWidth * 0.027, 8, 120)),
+    bottomFont: Math.round(options.bottomFontScale || clamp(visibleWidth * 0.021, 7, 90))
+  };
+};
+
+const watermarkSvg = ({ width, height, centerText, bottomText, bottomLogoSpace = 0, centerColor, bottomColor, options, layout }) => {
+  const {
+    visibleWidth,
+    visibleHeight,
+    visibleLeft,
+    visibleTop,
+    padding,
+    centerFont,
+    bottomFont
+  } = layout || watermarkLayoutForImage(width, height, options);
+  const centerMax = visibleWidth * 0.86;
   const centerScale = centerText ? Math.min(1, centerMax / vectorTextWidth(centerText, centerFont)) : 1;
-  const bottomMax = width * 0.78;
+  const bottomMax = Math.max(bottomFont * 2, visibleWidth * 0.82 - bottomLogoSpace);
   const bottomScale = bottomText ? Math.min(1, bottomMax / vectorTextWidth(bottomText, bottomFont)) : 1;
-  const bottomX = padding + bottomLogoSpace;
-  const bottomY = height - padding;
+  const bottomX = visibleLeft + padding + bottomLogoSpace;
+  const bottomY = visibleTop + visibleHeight - padding;
   const bottomTextWidth = bottomText ? vectorTextWidth(bottomText, bottomFont) * bottomScale : 0;
   const bottomPadX = Math.round(bottomFont * 0.52);
   const bottomPadY = Math.round(bottomFont * 0.36);
   const bottomRectW = Math.round(bottomLogoSpace + bottomTextWidth + bottomPadX * 2);
   const bottomRectH = Math.round(bottomFont * bottomScale + bottomPadY * 2);
-  const bottomRectX = padding;
-  const bottomRectY = Math.max(padding, bottomY - bottomRectH);
+  const bottomRectX = visibleLeft + padding;
+  const bottomRectY = Math.max(visibleTop + padding, bottomY - bottomRectH);
   const bottomBackFill = bottomColor.fill === '#ffffff' ? 'rgba(17,24,39,0.58)' : 'rgba(255,255,255,0.72)';
   return Buffer.from(`
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
@@ -208,17 +235,18 @@ export const createWatermarkedProductImage = async ({
   const metadata = await sharp(inputPath).metadata();
   const width = metadata.width || 1200;
   const height = metadata.height || 1200;
+  const layout = watermarkLayoutForImage(width, height, opts);
   const centerRegion = {
-    left: width * 0.18,
-    top: height * 0.35,
-    width: width * 0.64,
-    height: height * 0.30
+    left: layout.visibleLeft + layout.visibleWidth * 0.18,
+    top: layout.visibleTop + layout.visibleHeight * 0.35,
+    width: layout.visibleWidth * 0.64,
+    height: layout.visibleHeight * 0.30
   };
   const bottomRegion = {
-    left: width * 0.02,
-    top: height * 0.78,
-    width: width * 0.48,
-    height: height * 0.20
+    left: layout.visibleLeft + layout.visibleWidth * 0.02,
+    top: layout.visibleTop + layout.visibleHeight * 0.78,
+    width: layout.visibleWidth * 0.48,
+    height: layout.visibleHeight * 0.20
   };
   const centerColor = opts.allowAutoColor
     ? await getBestTextColorForRegion(inputPath, centerRegion)
@@ -230,7 +258,7 @@ export const createWatermarkedProductImage = async ({
   let logoSize = 0;
   if (bottomLogoPath) {
     try {
-      logoSize = Math.round(clamp(Math.min(width, height) * 0.075, 34, 86));
+      logoSize = Math.round(clamp(layout.visibleWidth * 0.075, 34, 180));
       logoBuffer = await sharp(bottomLogoPath)
         .resize({
           width: logoSize,
@@ -254,15 +282,18 @@ export const createWatermarkedProductImage = async ({
     bottomLogoSpace,
     centerColor,
     bottomColor,
-    options: opts
+    options: opts,
+    layout
   });
   const composites = [{ input: overlay, gravity: 'northwest' }];
   if (logoBuffer) {
-    const padding = Math.round(Math.min(width, height) * opts.paddingRatio);
     composites.push({
       input: logoBuffer,
-      left: padding,
-      top: Math.max(padding, height - padding - logoSize)
+      left: Math.round(layout.visibleLeft + layout.padding),
+      top: Math.round(Math.max(
+        layout.visibleTop + layout.padding,
+        layout.visibleTop + layout.visibleHeight - layout.padding - logoSize
+      ))
     });
   }
   let pipeline = sharp(inputPath)

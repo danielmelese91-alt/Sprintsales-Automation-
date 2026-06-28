@@ -10,6 +10,7 @@ import { createSalesService } from './src/services/sales-service.js';
 import {
   createWatermarkedProductImage,
   getBestTextColorForRegion,
+  watermarkLayoutForImage,
   watermarkedPathForOriginal
 } from './src/services/product-watermark-service.js';
 
@@ -59,6 +60,24 @@ try {
     bottomText: ['undefined', '', null].filter(value => value && !/^(undefined|null)$/i.test(String(value))).join(' | ')
   });
   assert.equal(noBrokenBottom.bottomText, '', 'missing phone/code should not produce undefined/null bottom text');
+
+  const displayedFontSize = (width, height) => {
+    const layout = watermarkLayoutForImage(width, height);
+    const coverScale = Math.max(400 / width, 500 / height);
+    return {
+      center: layout.centerFont * coverScale,
+      bottom: layout.bottomFont * coverScale,
+      layout
+    };
+  };
+  const portraitMark = displayedFontSize(743, 960);
+  const landscapeMark = displayedFontSize(960, 493);
+  const nearSquareMark = displayedFontSize(960, 918);
+  assert.ok(Math.abs(portraitMark.center - landscapeMark.center) < 1.2, 'center watermark should keep a consistent visual size after 4:5 cover cropping');
+  assert.ok(Math.abs(portraitMark.center - nearSquareMark.center) < 1.2, 'center watermark should be consistent on near-square images');
+  assert.ok(Math.abs(portraitMark.bottom - landscapeMark.bottom) < 1.2, 'bottom watermark should keep a consistent visual size after 4:5 cover cropping');
+  assert.ok(landscapeMark.layout.visibleLeft > 0, 'landscape watermark should be inset into the visible 4:5 crop');
+  assert.ok(portraitMark.layout.visibleTop > 0, 'tall portrait watermark should be inset above the cropped bottom edge');
 
   let visionCalls = 0;
   const aiService = createAiService({
