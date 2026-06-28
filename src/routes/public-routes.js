@@ -2,6 +2,10 @@ import { Router } from 'express';
 import { normalizePaymentOptions } from '../config/payment-methods.js';
 import { normalizeDeliveryZones } from '../config/addis-delivery-locations.js';
 import { normalizeMiniappTemplate } from '../config/miniapp-templates.js';
+import {
+  getRetailWebsiteTheme,
+  resolveRetailWebsiteTheme
+} from '../config/retail-themes.js';
 
 const normalizeDiscountValue = value => Math.max(0, Math.min(100, Number(value || 0) || 0));
 const normalizeWeeklyDiscountCap = value => Math.max(0, Math.min(9999, Number(value || 0) || 0));
@@ -836,6 +840,7 @@ export function createPublicRoutes(deps) {
       ? String(body.subscriptionPlan || body.plan).toLowerCase()
       : 'basic';
     const categoryTemplates = cloneRetailTemplateCategories(retailType || businessType);
+    const registrationWebsiteTheme = getRetailWebsiteTheme(retailType || businessType);
     if (!businessName || !phone || !password) return res.status(400).json({ error: 'Business name, phone number, and password are required.' });
     if (password.length < 5) return res.status(400).json({ error: 'Password must be at least 5 characters.' });
     const verifiedOwner = verifiedTelegramOwnerForPhone(data, phone);
@@ -863,7 +868,13 @@ export function createPublicRoutes(deps) {
           summary: `${businessName} created this workspace by self-registration.`
         },
         categories: categoryTemplates.map(category => category.name),
-        categoryTemplates
+        categoryTemplates,
+        miniapp: {
+          ...defaultSettings().miniapp,
+          themeColor: registrationWebsiteTheme.themeColor,
+          accentColor: registrationWebsiteTheme.accentColor,
+          themeCustomized: false
+        }
       },
       createdAt: now()
     };
@@ -1427,16 +1438,31 @@ export function createPublicRoutes(deps) {
       ...defaultSettings().miniapp,
       ...(s.miniapp || {})
     };
+    const websiteRetailType = String(
+      b.retailType ||
+      s.businessProfile?.retailType ||
+      s.retailType ||
+      client.retailType ||
+      'general'
+    ).trim();
+    const currentWebsiteTheme = resolveRetailWebsiteTheme(websiteRetailType, currentMiniapp);
+    const recommendedWebsiteTheme = getRetailWebsiteTheme(websiteRetailType);
+    const requestedThemeCustomized = incomingMiniapp?.themeCustomized === true;
     const nextMiniapp = incomingMiniapp ? {
       enabled: incomingMiniapp.enabled !== false,
       slug: miniappSlug(incomingMiniapp.slug || client.businessName || client.id),
       customDomain: miniappDomain(incomingMiniapp.customDomain || ''),
       template: normalizeMiniappTemplate(incomingMiniapp.template),
-      themeColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.themeColor || '')) ? String(incomingMiniapp.themeColor) : '#0f2a52',
-      accentColor: /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.accentColor || '')) ? String(incomingMiniapp.accentColor) : '#14b8a6'
+      themeColor: requestedThemeCustomized && /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.themeColor || ''))
+        ? String(incomingMiniapp.themeColor).toLowerCase()
+        : (requestedThemeCustomized ? currentWebsiteTheme.themeColor : recommendedWebsiteTheme.themeColor),
+      accentColor: requestedThemeCustomized && /^#[0-9a-f]{6}$/i.test(String(incomingMiniapp.accentColor || ''))
+        ? String(incomingMiniapp.accentColor).toLowerCase()
+        : (requestedThemeCustomized ? currentWebsiteTheme.accentColor : recommendedWebsiteTheme.accentColor),
+      themeCustomized: requestedThemeCustomized
     } : currentMiniapp;
     if (incomingMiniapp && !nextMiniapp.slug) {
-      return res.status(400).json({ error: 'MiniApp shop link slug is required.' });
+      return res.status(400).json({ error: 'Website shop link is required.' });
     }
     if (incomingMiniapp) {
       const slugConflict = (req.data.clients || []).find(item =>
@@ -1445,7 +1471,7 @@ export function createPublicRoutes(deps) {
         miniappSlug(item.settings?.miniapp?.slug || item.settings?.storeSlug || item.businessName || item.id) === nextMiniapp.slug
       );
       if (slugConflict) {
-        return res.status(409).json({ error: 'That MiniApp shop link is already used by another business. Choose a different slug.' });
+        return res.status(409).json({ error: 'That website shop link is already used by another business. Choose a different link.' });
       }
       if (nextMiniapp.customDomain) {
         const domainConflict = (req.data.clients || []).find(item =>
@@ -1453,7 +1479,7 @@ export function createPublicRoutes(deps) {
           miniappDomain(item.settings?.miniapp?.customDomain || item.settings?.miniappDomain || '') === nextMiniapp.customDomain
         );
         if (domainConflict) {
-          return res.status(409).json({ error: 'That MiniApp custom domain is already connected to another business.' });
+          return res.status(409).json({ error: 'That custom domain is already connected to another business.' });
         }
       }
     }

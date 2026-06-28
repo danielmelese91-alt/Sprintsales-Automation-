@@ -526,7 +526,7 @@
     var showTelegram = telegram && !isTelegramOpen();
     return '<header class="app-header">' +
       '<div class="header-main">' +
-        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>' + (isEditorialTemplate() ? 'Online shop' : 'Mini App') + '</small></span></button>' +
+        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Online shop</small></span></button>' +
         '<div class="header-icons">' +
           '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '</button>' +
           (isEditorialTemplate() ? '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '</button>' : '') +
@@ -548,7 +548,7 @@
     var showTelegram = telegram && !isTelegramOpen();
     return '<section class="commerce-hero">' +
       '<div class="home-brand-row">' +
-        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>' + (isEditorialTemplate() ? 'Online shop' : 'Mini App') + '</small></span></button>' +
+        '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Online shop</small></span></button>' +
         (addressLine ? '<a class="branch-chip" href="' + esc(map) + '" target="_blank" rel="noopener" title="' + esc(shop.addressLine || addressLine) + '">' + svgIcon('location') + ' <span>' + esc(addressLine) + '</span></a>' : '') +
         '<div class="header-icons">' +
           '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '</button>' +
@@ -1712,10 +1712,14 @@
       void trackMiniappEvent('shop_open');
       var titleName = state.shop.businessName || 'SprintSales';
       document.title = /\bshop\b/i.test(titleName) ? titleName : titleName + ' Shop';
-      document.documentElement.style.setProperty('--navy', state.shop.themeColor || '#0f2a52');
-      document.documentElement.style.setProperty('--accent', state.shop.accentColor || '#14b8a6');
       document.body.classList.toggle('cake-shop', isCakeShop());
       document.body.classList.toggle('template-editorial', isEditorialTemplate());
+      var websiteMainColor = state.shop.themeColor || '#173b67';
+      var websiteAccentColor = state.shop.accentColor || '#20a39e';
+      document.documentElement.style.setProperty('--navy', websiteMainColor);
+      document.documentElement.style.setProperty('--accent', websiteAccentColor);
+      document.body.style.setProperty('--navy', websiteMainColor);
+      document.body.style.setProperty('--accent', websiteAccentColor);
       render();
     } catch (error) {
       fail(error.message);

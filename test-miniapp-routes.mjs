@@ -27,6 +27,7 @@ const client = {
     businessProfile: {
       ...defaultSettings().businessProfile,
       businessType: 'retail',
+      retailType: 'electronics',
       summary: 'A test shop',
       address: 'Bole Atlas',
       mapUrl: 'https://maps.app.goo.gl/examplePin'
@@ -37,7 +38,8 @@ const client = {
       customDomain: 'shop.example.com',
       template: 'editorial-boutique',
       themeColor: '#0f2a52',
-      accentColor: '#14b8a6'
+      accentColor: '#14b8a6',
+      themeCustomized: false
     },
     delivery: {
       mode: 'location_zones',
@@ -223,6 +225,8 @@ try {
   const catalog = await catalogResponse.json();
   assert.equal(catalog.shop.businessName, 'Demo Retail Shop');
   assert.equal(catalog.shop.template, MINIAPP_TEMPLATE_IDS.EDITORIAL_BOUTIQUE);
+  assert.equal(catalog.shop.themeColor, '#123c73');
+  assert.equal(catalog.shop.accentColor, '#087f8c');
   assert.equal(normalizeMiniappTemplate('not-a-real-template'), MINIAPP_TEMPLATE_IDS.CLEAN_RETAIL);
   assert.equal(catalog.shop.slug, 'demo-retail-shop');
   assert.equal(catalog.shop.botUsername, 'DemoShopBot');

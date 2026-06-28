@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'node:path';
 import { miniappTemplateForClient } from '../config/miniapp-templates.js';
+import { websiteThemeForClient } from '../config/retail-themes.js';
 
 const slugify = value => String(value || '')
   .toLowerCase()
@@ -85,14 +86,17 @@ const productAllowsCatalog = product => {
   return true;
 };
 
-const clientMiniappSettings = client => ({
-  enabled: client?.settings?.miniapp?.enabled !== false,
-  slug: slugify(client?.settings?.miniapp?.slug || client?.settings?.storeSlug || client?.businessName || client?.id),
-  customDomain: cleanHost(client?.settings?.miniapp?.customDomain || client?.settings?.miniappDomain || ''),
-  template: miniappTemplateForClient(client),
-  themeColor: String(client?.settings?.miniapp?.themeColor || '#0f2a52').trim(),
-  accentColor: String(client?.settings?.miniapp?.accentColor || '#14b8a6').trim()
-});
+const clientMiniappSettings = client => {
+  const websiteTheme = websiteThemeForClient(client);
+  return {
+    enabled: client?.settings?.miniapp?.enabled !== false,
+    slug: slugify(client?.settings?.miniapp?.slug || client?.settings?.storeSlug || client?.businessName || client?.id),
+    customDomain: cleanHost(client?.settings?.miniapp?.customDomain || client?.settings?.miniappDomain || ''),
+    template: miniappTemplateForClient(client),
+    themeColor: websiteTheme.themeColor,
+    accentColor: websiteTheme.accentColor
+  };
+};
 
 const clientRetailType = client => String(
   client?.settings?.businessProfile?.retailType ||

@@ -108,7 +108,8 @@ export const defaultSettings = () => ({
     customDomain: '',
     template: MINIAPP_TEMPLATE_IDS.CLEAN_RETAIL,
     themeColor: '#0f2a52',
-    accentColor: '#14b8a6'
+    accentColor: '#14b8a6',
+    themeCustomized: false
   },
   cakeOrderSettings: {
     paymentMode: 'full',

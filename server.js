@@ -37,6 +37,7 @@ import {
   formatCategoryContextForPrompt,
   validateCategorySelection
 } from './src/config/retail-templates.js';
+import { websiteThemeForClient } from './src/config/retail-themes.js';
 import {
   quotas,
   defaultSettings,
@@ -388,7 +389,9 @@ const {
   isServiceBusiness
 });
 
-const safeClient = client => ({
+const safeClient = client => {
+  const websiteTheme = websiteThemeForClient(client);
+  return ({
   id: client.id,
   identity: {
     clientId: client.identity?.clientId || client.id,
@@ -413,6 +416,14 @@ const safeClient = client => ({
   createdAt: client.createdAt,
   settings: {
     ...client.settings,
+    miniapp: {
+      ...defaultSettings().miniapp,
+      ...(client.settings.miniapp || {}),
+      themeColor: websiteTheme.themeColor,
+      accentColor: websiteTheme.accentColor,
+      themeCustomized: websiteTheme.themeCustomized,
+      recommendedTheme: websiteTheme.recommendedTheme
+    },
     botToken: client.settings.botToken ? 'configured' : '',
     aiProvider: normalizeProvider(client.settings.aiProvider || 'deepseek'),
     adminAiProvider: normalizeProvider(client.settings.adminAiProvider || 'deepseek'),
@@ -443,7 +454,8 @@ const safeClient = client => ({
       ...(client.settings.delivery || {})
     }
   }
-});
+  });
+};
 
 
 const getConversation = (data, clientId, telegramChatId) => {
