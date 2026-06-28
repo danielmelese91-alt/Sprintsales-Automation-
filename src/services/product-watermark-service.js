@@ -172,14 +172,6 @@ const watermarkSvg = ({ width, height, centerText, bottomText, bottomLogoSpace =
   const bottomScale = bottomText ? Math.min(1, bottomMax / vectorTextWidth(bottomText, bottomFont)) : 1;
   const bottomX = visibleLeft + padding + bottomLogoSpace;
   const bottomY = visibleTop + visibleHeight - padding;
-  const bottomTextWidth = bottomText ? vectorTextWidth(bottomText, bottomFont) * bottomScale : 0;
-  const bottomPadX = Math.round(bottomFont * 0.52);
-  const bottomPadY = Math.round(bottomFont * 0.36);
-  const bottomRectW = Math.round(bottomLogoSpace + bottomTextWidth + bottomPadX * 2);
-  const bottomRectH = Math.round(bottomFont * bottomScale + bottomPadY * 2);
-  const bottomRectX = visibleLeft + padding;
-  const bottomRectY = Math.max(visibleTop + padding, bottomY - bottomRectH);
-  const bottomBackFill = bottomColor.fill === '#ffffff' ? 'rgba(17,24,39,0.58)' : 'rgba(255,255,255,0.72)';
   return Buffer.from(`
 <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
   ${centerText ? `
@@ -196,7 +188,6 @@ const watermarkSvg = ({ width, height, centerText, bottomText, bottomLogoSpace =
   })}` : ''}
   ${bottomText ? `
   <g opacity="${options.bottomOpacity}">
-    <rect x="${bottomRectX}" y="${bottomRectY}" width="${bottomRectW}" height="${bottomRectH}" rx="${Math.round(bottomFont * 0.32)}" fill="${bottomBackFill}" />
     ${vectorTextSvg({
       text: escapeXml(bottomText),
       x: bottomX,
