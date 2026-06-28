@@ -42,7 +42,9 @@ export const createIntentRecoveryService = (deps = {}) => {
     now,
     uid,
     productPrice,
-    isProductBusiness
+    isProductBusiness,
+    sendShopperOutreach,
+    storefrontUrlForClient
   } = deps;
 
   const isProClient = client => String(client?.billing?.plan || client?.subscriptionPlan || client?.settings?.subscriptionPlan || 'basic').toLowerCase() === 'pro';
@@ -101,22 +103,26 @@ export const createIntentRecoveryService = (deps = {}) => {
     ].filter(Boolean).join('\n');
   };
 
-  const buttonsForIntent = (client, intent, alternative) => {
+  const buttonsForIntent = (client, intent, product, alternative) => {
     const rows = [
       [{ text: 'Continue Order', callback_data: `productflow:intent_continue:${intent.id}` }],
-      [{ text: 'View Product', callback_data: `productflow:intent_view:${intent.id}` }],
+      [{ text: 'View Product', url: storefrontUrlForClient(client, product) }],
     ];
-    if (alternative) rows.push([{ text: 'See Similar Lower Price', callback_data: `productflow:intent_similar:${intent.id}` }]);
+    if (alternative) rows.push([{ text: 'See Similar Lower Price', url: storefrontUrlForClient(client, alternative) }]);
     rows.push([{ text: 'Not Now', callback_data: `productflow:intent_later:${intent.id}` }]);
     if (Number(intent.remindersSent || 0) >= 1) rows.push([{ text: 'Stop Reminders', callback_data: `productflow:intent_stop:${intent.id}` }]);
     return localizeButtons(client, rows);
   };
 
-  const sendIntentMessage = async (client, intent, text, buttons) => {
-    const runner = botRunners.get(client.id);
-    const telegram = runner?.telegram || new Telegraf(client.settings.botToken).telegram;
-    await telegram.sendMessage(intent.telegramChatId, text, {
-      reply_markup: { inline_keyboard: buttons }
+  const sendIntentMessage = async (client, intent, product, text, buttons) => {
+    if (typeof sendShopperOutreach !== 'function') return { sent: false, channel: 'none' };
+    return sendShopperOutreach({
+      client,
+      recipient: intent,
+      text,
+      product,
+      kind: 'intent_recovery',
+      botExtra: { reply_markup: { inline_keyboard: buttons } }
     });
   };
 
@@ -129,7 +135,6 @@ export const createIntentRecoveryService = (deps = {}) => {
     let changed = false;
     for (const client of data.clients || []) {
       if (!client || client.status !== 'active' || !isProductBusiness(client) || !isProClient(client) || client.settings?.intentRecoveryEnabled === false) continue;
-      if (!client.settings?.botToken) continue;
       const intents = data.productIntents.filter(intent =>
         intent.clientId === client.id &&
         intent.telegramChatId &&
@@ -164,11 +169,19 @@ export const createIntentRecoveryService = (deps = {}) => {
         if (!policy.ok) continue;
         applyIntentLanguage(data, client, intent);
         try {
-          await sendIntentMessage(client, intent, messageForIntent(client, intent, product, alternative), buttonsForIntent(client, intent, alternative));
+          const delivery = await sendIntentMessage(
+            client,
+            intent,
+            product,
+            messageForIntent(client, intent, product, alternative),
+            buttonsForIntent(client, intent, product, alternative)
+          );
+          if (!delivery.sent) throw new Error(delivery.reason || 'No Telegram sender is available.');
           intent.remindersSent = Number(intent.remindersSent || 0) + 1;
           intent.lastReminderAt = now();
           intent.status = 'reminded';
           intent.alternativeProductId = alternative?.id || intent.alternativeProductId || '';
+          intent.lastDeliveryChannel = delivery.channel;
           intent.updatedAt = intent.lastReminderAt;
           data.messages ||= [];
           data.messages.push({
@@ -188,7 +201,8 @@ export const createIntentRecoveryService = (deps = {}) => {
             telegramChatId: intent.telegramChatId,
             kind: 'intent_recovery',
             productId: intent.productId || '',
-            intentId: intent.id
+            intentId: intent.id,
+            deliveryChannel: delivery.channel
           });
           sent += 1;
           changed = true;

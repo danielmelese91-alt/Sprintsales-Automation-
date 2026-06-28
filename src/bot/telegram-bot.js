@@ -551,6 +551,39 @@ export function createTelegramBotRuntime(deps) {
         stage: 'greeting'
       };
     };
+    const handleOutreachOptOutStart = async (data, currentClient, conversation, ctx, text) => {
+      const payload = String(text || '').trim().match(/^\/start\s+(stop_suggestions|stop_reminders|stop_promotions)\b/i)?.[1]?.toLowerCase();
+      if (!payload) return false;
+      const chatId = String(ctx.chat?.id || conversation.telegramChatId || '').trim();
+      const customer = (data.customers || []).find(item =>
+        item.clientId === currentClient.id &&
+        [item.telegramChatId, item.telegramUserId].some(value => String(value || '') === chatId)
+      );
+      const targets = [customer, conversation].filter(Boolean);
+      const changedAt = now();
+      for (const target of targets) {
+        if (payload === 'stop_suggestions') {
+          target.recommendationsOptOut = true;
+          target.recommendationOptOutAt = changedAt;
+        } else if (payload === 'stop_reminders') {
+          target.intentRecoveryOptOut = true;
+          target.remindersOptOut = true;
+          target.remindersOptOutAt = changedAt;
+        } else {
+          target.promotionsOptOut = true;
+          target.announcementOptOut = true;
+          target.promotionsOptOutAt = changedAt;
+        }
+        target.updatedAt = changedAt;
+      }
+      const reply = payload === 'stop_suggestions'
+        ? 'Done. Product suggestions are now stopped for this shop.'
+        : (payload === 'stop_reminders'
+          ? 'Done. Product reminders are now stopped for this shop.'
+          : 'Done. Promotional announcements are now stopped for this shop.');
+      await ctx.reply(reply, inlineKeyboard([[{ text: 'Shop', web_app: { url: miniappShopUrl(currentClient) } }]]));
+      return true;
+    };
     const productImageForTelegram = product => {
       const images = Array.isArray(product?.images) ? product.images : [];
       const first = images.find(item => item?.publicPath || item?.watermarkedPath || item?.originalPath) || {};
@@ -732,6 +765,10 @@ export function createTelegramBotRuntime(deps) {
           createdAt: now()
         });
         if (/^\/start\b/i.test(text) || /^\s*(hi|hello|hey|selam|salam)\s*$/i.test(text)) {
+          if (await handleOutreachOptOutStart(data, currentClient, conversation, ctx, text)) {
+            await writeData(data);
+            return;
+          }
           cancelStaleOrdersForConversation(data, conversation);
           await sendProductflowGreeting(data, currentClient, conversation, ctx);
           await writeData(data);

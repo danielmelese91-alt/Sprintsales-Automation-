@@ -83,7 +83,9 @@ export const createRecommendationService = (deps = {}) => {
     now,
     uid,
     productPrice,
-    isProductBusiness
+    isProductBusiness,
+    sendShopperOutreach,
+    storefrontUrlForClient
   } = deps;
 
   const isProClient = client => String(client?.billing?.plan || client?.subscriptionPlan || client?.settings?.subscriptionPlan || 'basic').toLowerCase() === 'pro';
@@ -225,21 +227,26 @@ export const createRecommendationService = (deps = {}) => {
     return lines.join('\n');
   };
 
-  const sendRecommendationMessage = async (client, customer, recommendation, text) => {
+  const sendRecommendationMessage = async (client, customer, recommendation, product, text) => {
     const chatId = String(customer.telegramChatId || recommendation.telegramChatId || '').trim();
-    if (!chatId || !client?.settings?.botToken) return false;
-    const runner = botRunners.get(client.id);
-    const telegram = runner?.telegram || new Telegraf(client.settings.botToken).telegram;
-    await telegram.sendMessage(chatId, text, {
-      reply_markup: {
-        inline_keyboard: localizeButtons(client, [
-          [{ text: 'View Product', callback_data: `productflow:recommend_view:${recommendation.id}` }],
-          [{ text: 'Not Now', callback_data: `productflow:recommend_later:${recommendation.id}` }],
-          [{ text: 'Stop Suggestions', callback_data: `productflow:recommend_stop:${recommendation.id}` }]
-        ])
+    if (!chatId || typeof sendShopperOutreach !== 'function') return { sent: false, channel: 'none' };
+    const productUrl = storefrontUrlForClient(client, product);
+    return sendShopperOutreach({
+      client,
+      recipient: customer,
+      text,
+      product,
+      kind: 'recommendation',
+      botExtra: {
+        reply_markup: {
+          inline_keyboard: localizeButtons(client, [
+            [{ text: 'View Product', url: productUrl }],
+            [{ text: 'Not Now', callback_data: `productflow:recommend_later:${recommendation.id}` }],
+            [{ text: 'Stop Suggestions', callback_data: `productflow:recommend_stop:${recommendation.id}` }]
+          ])
+        }
       }
     });
-    return true;
   };
 
   const sendDueRecommendations = async () => {
@@ -283,9 +290,11 @@ export const createRecommendationService = (deps = {}) => {
         };
         const text = recommendationText(client, match);
         try {
-          await sendRecommendationMessage(client, customer, record, text);
+          const delivery = await sendRecommendationMessage(client, customer, record, match.product, text);
+          if (!delivery.sent) throw new Error(delivery.reason || 'No Telegram sender is available.');
           record.status = 'sent';
           record.sentAt = now();
+          record.deliveryChannel = delivery.channel;
           customer.recommendationProfile = {
             ...(customer.recommendationProfile || {}),
             ...match.profile,
@@ -300,7 +309,8 @@ export const createRecommendationService = (deps = {}) => {
             telegramChatId: customer.telegramChatId,
             kind: 'recommendation',
             productId: match.product.id || '',
-            recommendationId: record.id
+            recommendationId: record.id,
+            deliveryChannel: delivery.channel
           });
           sent += 1;
           changed = true;

@@ -28,6 +28,7 @@ import { createMatchingService } from './src/services/matching-service.js';
 import { createRecommendationService } from './src/services/recommendation-service.js';
 import { createIntentRecoveryService } from './src/services/intent-recovery-service.js';
 import { createAnnouncementService } from './src/services/announcement-service.js';
+import { createShopperOutreachService } from './src/services/shopper-outreach-service.js';
 import { createPaymentVerificationService } from './src/services/payment-verification-service.js';
 import { createWatermarkedProductImage, watermarkedPathForOriginal } from './src/services/product-watermark-service.js';
 import { createPlatformStore } from './src/store/platform-store.js';
@@ -866,6 +867,18 @@ const {
 });
 
 const {
+  sendShopperOutreach,
+  storefrontUrlForClient
+} = createShopperOutreachService({
+  Telegraf,
+  loadGramJs,
+  botRunners,
+  accountRunners,
+  recordBotError,
+  platformDomain: process.env.PUBLIC_PLATFORM_DOMAIN || 'sprintsales.net'
+});
+
+const {
   isProClient,
   findCheckoutMatch
 } = createMatchingService({
@@ -884,7 +897,9 @@ const {
   now,
   uid,
   productPrice,
-  isProductBusiness
+  isProductBusiness,
+  sendShopperOutreach,
+  storefrontUrlForClient
 });
 
 const {
@@ -898,7 +913,9 @@ const {
   now,
   uid,
   productPrice,
-  isProductBusiness
+  isProductBusiness,
+  sendShopperOutreach,
+  storefrontUrlForClient
 });
 
 const {
@@ -914,7 +931,9 @@ const {
   now,
   uid,
   productPrice,
-  isProductBusiness
+  isProductBusiness,
+  sendShopperOutreach,
+  storefrontUrlForClient
 });
 
 

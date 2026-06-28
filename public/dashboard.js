@@ -1623,6 +1623,15 @@ function renderBotSetupSteps(){
   return '<div class="card p-5"><h3 class="text-white font-semibold mb-3"><i class="fas fa-list-check text-sprint-400 mr-2"></i>How to create your shop bot</h3><ol class="space-y-2 text-sm text-slate-600 list-decimal pl-5"><li>Open Telegram and search <strong>@BotFather</strong>.</li><li>Send <strong>/newbot</strong>.</li><li>Choose a business-friendly bot name, for example <strong>AddisMart Assistant</strong>.</li><li>Choose a username ending with <strong>bot</strong>, for example <strong>@AddisMartSalesBot</strong>.</li><li>Copy the token BotFather gives you and paste it below.</li><li>Paste the bot username, save settings, then press <strong>Test Connection</strong>.</li></ol><p class="text-xs text-slate-500 mt-3"><i class="fas fa-shield-alt mr-1"></i> Keep the token private. Anyone with the token can control your bot.</p></div>';
 }
 
+function renderPersonalOutreachAccount(cs){
+  var connected=cs.accountSessionStatus==='connected'&&cs.accountSessionString==='configured';
+  var status=connected?'Connected':String(cs.accountSessionStatus||'Not connected').replace(/_/g,' ');
+  if(connected){
+    return '<div class="card p-6"><div class="flex flex-col md:flex-row md:items-start justify-between gap-3"><div><h3 class="text-white font-semibold"><i class="fas fa-user-paper-plane text-sprint-400 mr-2"></i>Personal Telegram Outreach</h3><p class="text-sm text-slate-400 mt-1">Recommendations and announcements are sent from this account first. The shop bot remains available as a safe fallback.</p><div class="mt-3 text-xs"><span class="badge badge-active">Connected</span> <span class="text-slate-300 ml-2">'+esc(cs.accountUsername||cs.accountPhone||'Telegram account')+'</span></div><p class="text-xs text-slate-500 mt-3">SprintSales keeps shopper opt-outs, quiet hours, and message limits active. Telegram may still restrict accounts that send unwanted messages.</p></div><button type="button" class="btn btn-ghost text-xs" onclick="disconnectPersonalOutreachAccount()"><i class="fas fa-unlink"></i> Disconnect</button></div></div>';
+  }
+  return '<div class="card p-6"><h3 class="text-white font-semibold"><i class="fas fa-user-paper-plane text-sprint-400 mr-2"></i>Personal Telegram Outreach</h3><p class="text-sm text-slate-400 mt-1">Optional: connect the business owner\'s Telegram account so consented recommendations and announcements come from a real account. If unavailable, SprintSales uses the shop bot.</p><div class="rounded-lg border border-yellow-300/30 bg-yellow-50 text-yellow-900 p-3 my-4 text-xs"><strong>Use a business Telegram account.</strong> Keep message caps enabled and never upload purchased contact lists. Telegram can restrict accounts that send unwanted bulk messages.</div><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div><label class="text-xs text-slate-400 block mb-1">Telegram API ID</label><input id="outreach-api-id" class="field" inputmode="numeric" value="'+esc(cs.accountApiId||'')+'" placeholder="From my.telegram.org"></div><div><label class="text-xs text-slate-400 block mb-1">Telegram API Hash</label><input id="outreach-api-hash" class="field" type="password" placeholder="'+(cs.accountApiHash==='configured'?'Saved - leave blank to keep':'From my.telegram.org')+'"></div><div><label class="text-xs text-slate-400 block mb-1">Account Phone</label><input id="outreach-phone" class="field" value="'+esc(cs.accountPhone||'')+'" placeholder="+2519..."></div></div><div class="flex flex-wrap gap-2 mt-3"><button type="button" class="btn btn-ghost text-xs" onclick="sendPersonalOutreachCode()"><i class="fas fa-paper-plane"></i> Send Login Code</button><span class="text-xs text-slate-500 self-center">Status: '+esc(status)+'</span></div><div class="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-3 items-end mt-4"><div><label class="text-xs text-slate-400 block mb-1">Telegram Login Code</label><input id="outreach-code" class="field" inputmode="numeric" placeholder="Code sent by Telegram"></div><div><label class="text-xs text-slate-400 block mb-1">Cloud Password <span class="text-slate-500">(if enabled)</span></label><input id="outreach-password" class="field" type="password" autocomplete="off"></div><button type="button" class="btn btn-primary text-xs" onclick="connectPersonalOutreachAccount()"><i class="fas fa-link"></i> Connect Account</button></div></div>';
+}
+
 function renderBotTab(c){
   var cs=(client||{}).settings||{};
   var token=cs.botToken||'';
@@ -1644,9 +1653,17 @@ function renderBotTab(c){
   '<div class="flex gap-2"><button type="submit" class="btn btn-primary text-xs"><i class="fas fa-save"></i> Save Settings</button>'+
   '<button type="button" class="btn btn-ghost text-xs" onclick="testBotConnection()"><i class="fas fa-plug"></i> Test Connection</button>'+
   '<button type="button" class="btn btn-ghost text-xs" onclick="restartBot()"><i class="fas fa-redo"></i> Restart Bot</button></div>'+
-  '</form></div></div>';
+  '</form></div>'+renderPersonalOutreachAccount(cs)+'</div>';
   setTimeout(bindBotDraft,0);
 }
+
+function personalOutreachCredentials(includeCode){
+  var hash=(document.getElementById('outreach-api-hash')||{}).value||'';
+  return{accountApiId:((document.getElementById('outreach-api-id')||{}).value||'').trim(),accountApiHash:hash.trim()||(client.settings.accountApiHash==='configured'?'configured':''),accountPhone:((document.getElementById('outreach-phone')||{}).value||'').trim(),accountVerificationCode:includeCode?((document.getElementById('outreach-code')||{}).value||'').trim():'',accountPassword:includeCode?((document.getElementById('outreach-password')||{}).value||''):''}
+}
+async function sendPersonalOutreachCode(){try{var d=await apiFetch('/api/client/account/send-code',{method:'POST',body:JSON.stringify(personalOutreachCredentials(false))});client=d.client||client;showToast('Telegram login code sent. Check Telegram, then enter it below.','success');renderBotTab(document.getElementById('dashboard-content'))}catch(err){showToast(err.message,'error')}}
+async function connectPersonalOutreachAccount(){try{var d=await apiFetch('/api/client/account/connect',{method:'POST',body:JSON.stringify(personalOutreachCredentials(true))});client=d.client||client;showToast('Personal outreach account connected.','success');renderBotTab(document.getElementById('dashboard-content'))}catch(err){showToast(err.message,'error')}}
+async function disconnectPersonalOutreachAccount(){if(!await confirmNice('Disconnect personal outreach?','Recommendations and announcements will fall back to the shop bot.',{icon:'unlink',okText:'Disconnect'}))return;try{var d=await apiFetch('/api/client/account/disconnect',{method:'POST'});client=d.client||client;showToast('Personal outreach account disconnected.','success');renderBotTab(document.getElementById('dashboard-content'))}catch(err){showToast(err.message,'error')}}
 
 async function saveBotSettings(e){
   e.preventDefault();

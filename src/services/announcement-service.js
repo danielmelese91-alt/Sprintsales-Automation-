@@ -86,7 +86,9 @@ export const createAnnouncementService = (deps = {}) => {
     now,
     uid,
     productPrice,
-    isProductBusiness
+    isProductBusiness,
+    sendShopperOutreach,
+    storefrontUrlForClient
   } = deps;
 
   const ensureCampaignCollections = data => {
@@ -302,9 +304,11 @@ export const createAnnouncementService = (deps = {}) => {
     if (!campaign.message) throw new Error('Write the announcement message before sending.');
     const audience = buildAudience(data, client, campaign);
     if (!audience.eligible.length) throw new Error('No eligible shoppers after opt-out and message-cap checks.');
-    if (!client.settings?.botToken) throw new Error('Telegram bot token is missing.');
-    const runner = botRunners.get(client.id);
-    const telegram = runner?.telegram || new Telegraf(client.settings.botToken).telegram;
+    if (typeof sendShopperOutreach !== 'function') throw new Error('Shopper outreach is not configured.');
+    const campaignProduct = campaign.productId
+      ? activeProducts(data, client.id).find(item => item.id === campaign.productId)
+      : null;
+    const campaignUrl = storefrontUrlForClient(client, campaignProduct);
     const wave = Number(campaign.wave || 0) + 1;
     let sent = 0;
     for (const customer of audience.eligible.slice(0, 500)) {
@@ -316,14 +320,22 @@ export const createAnnouncementService = (deps = {}) => {
       if (!policy.ok) continue;
       applyCustomerLanguage(data, client, customer);
       try {
-        await telegram.sendMessage(customer.telegramChatId, campaign.message, {
-          reply_markup: {
-            inline_keyboard: localizeButtons(client, [
-              [{ text: 'View Offers', callback_data: `productflow:campaign_view:${campaign.id}` }],
-              [{ text: 'Stop Promotions', callback_data: `productflow:campaign_stop:${campaign.id}` }]
-            ])
+        const delivery = await sendShopperOutreach({
+          client,
+          recipient: customer,
+          text: campaign.message,
+          product: campaignProduct,
+          kind: 'announcement_campaign',
+          botExtra: {
+            reply_markup: {
+              inline_keyboard: localizeButtons(client, [
+                [{ text: campaignProduct ? 'View Product' : 'View Offers', url: campaignUrl }],
+                [{ text: 'Stop Promotions', callback_data: `productflow:campaign_stop:${campaign.id}` }]
+              ])
+            }
           }
         });
+        if (!delivery.sent) throw new Error(delivery.reason || 'No Telegram sender is available.');
         const sentAt = now();
         data.campaignRecipients.push({
           id: uid('recipient'),
@@ -333,6 +345,7 @@ export const createAnnouncementService = (deps = {}) => {
           telegramChatId: customer.telegramChatId,
           wave,
           status: 'sent',
+          deliveryChannel: delivery.channel,
           sentAt
         });
         recordGrowthMessage(data, {
@@ -342,7 +355,8 @@ export const createAnnouncementService = (deps = {}) => {
           customerId: customer.id,
           telegramChatId: customer.telegramChatId,
           kind: 'announcement_campaign',
-          campaignId: campaign.id
+          campaignId: campaign.id,
+          deliveryChannel: delivery.channel
         });
         sent += 1;
       } catch (error) {

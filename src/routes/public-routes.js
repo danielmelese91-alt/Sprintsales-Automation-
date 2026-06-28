@@ -1956,6 +1956,7 @@ export function createPublicRoutes(deps) {
       details: 'Client reset dedicated account session status.'
     });
     await writeData(req.data);
+    startBot(client).catch(error => console.error(`Bot restart after account disconnect failed for ${client.businessName}:`, error.message));
     res.json({ client: safeClient(client) });
   });
   

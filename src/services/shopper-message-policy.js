@@ -95,7 +95,8 @@ export const recordGrowthMessage = (data, {
   productId = '',
   campaignId = '',
   recommendationId = '',
-  intentId = ''
+  intentId = '',
+  deliveryChannel = ''
 }) => {
   data.shopperMessageLedger ||= [];
   const sentAt = now ? now() : new Date().toISOString();
@@ -109,6 +110,7 @@ export const recordGrowthMessage = (data, {
     campaignId,
     recommendationId,
     intentId,
+    deliveryChannel,
     sentAt
   });
   return sentAt;
