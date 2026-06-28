@@ -8,6 +8,8 @@
     subcategory: 'All',
     saleOnly: false,
     sort: 'featured',
+    filterSize: '',
+    filterColor: '',
     query: '',
     selectedProduct: null,
     selectedImage: 0,
@@ -127,6 +129,8 @@
     state.trackResult = null;
     state.query = params.get('search') || '';
     state.searchOpen = Boolean(state.query);
+    state.filterSize = '';
+    state.filterColor = '';
     var view = String(params.get('view') || '').toLowerCase();
     state.view = view === 'account' ? 'account' : (view === 'orders' || view === 'track' ? 'track' : 'catalog');
     if (product) state.view = 'catalog';
@@ -250,7 +254,13 @@
 
   function sortedProducts(products) {
     var list = products.slice();
-    if (state.sort === 'price-low') {
+    if (state.sort === 'newest') {
+      list.sort(function (a, b) {
+        var dateA = Date.parse(a.createdAt || a.updatedAt || '') || 0;
+        var dateB = Date.parse(b.createdAt || b.updatedAt || '') || 0;
+        return dateB - dateA;
+      });
+    } else if (state.sort === 'price-low') {
       list.sort(function (a, b) { return moneyNumber(a.price) - moneyNumber(b.price); });
     } else if (state.sort === 'price-high') {
       list.sort(function (a, b) { return moneyNumber(b.price) - moneyNumber(a.price); });
@@ -272,8 +282,55 @@
       var categoryOk = state.category === 'All' || product.category === state.category;
       var subcategoryOk = state.subcategory === 'All' || product.subcategory === state.subcategory;
       var saleOk = !state.saleOnly || percentOff(product) > 0;
-      return categoryOk && subcategoryOk && saleOk && queryMatches(product, query);
+      var sizeOk = !state.filterSize || productFilterValues(product, 'size').some(function (value) {
+        return value.toLowerCase() === state.filterSize.toLowerCase();
+      });
+      var colorOk = !state.filterColor || productFilterValues(product, 'color').some(function (value) {
+        return value.toLowerCase() === state.filterColor.toLowerCase();
+      });
+      return categoryOk && subcategoryOk && saleOk && sizeOk && colorOk && queryMatches(product, query);
     }));
+  }
+
+  function uniqueFilterValues(values) {
+    var seen = new Set();
+    return values.map(function (value) { return String(value || '').trim(); }).filter(function (value) {
+      var key = value.toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort(function (a, b) { return a.localeCompare(b, undefined, { numeric: true }); });
+  }
+
+  function looksLikeLegacySize(value) {
+    var text = String(value || '').trim();
+    return /^(\d{1,3}(?:\.\d+)?(?:\s*(?:cm|mm|inch|in|kg|g|ml|l|w|waist))?|(?:xxs|xs|s|m|l|xl|xxl|xxxl|small|medium|large|extra large|free size|one size))$/i.test(text);
+  }
+
+  function productFilterValues(product, type) {
+    var values = type === 'color' ? (product.colors || []) : [];
+    (product.specGroups || []).forEach(function (group) {
+      var label = [group.key, group.label].join(' ').toLowerCase();
+      var field = String(group.field || '').toLowerCase();
+      var matches = type === 'color'
+        ? field === 'color' || /colou?r/.test(label)
+        : field === 'size' || /(^|[_\s-])(size|waist|dimension)([_\s-]|$)/.test(label);
+      if (matches) values = values.concat(group.values || []);
+    });
+    if (type === 'size' && !values.length) {
+      values = (product.sizes || []).filter(looksLikeLegacySize);
+    }
+    return uniqueFilterValues(values);
+  }
+
+  function catalogProductsBeforeOptionFilters() {
+    var query = state.query.toLowerCase().trim();
+    return state.products.filter(function (product) {
+      return (state.category === 'All' || product.category === state.category) &&
+        (state.subcategory === 'All' || product.subcategory === state.subcategory) &&
+        (!state.saleOnly || percentOff(product) > 0) &&
+        queryMatches(product, query);
+    });
   }
 
   function botUrl(product) {
@@ -852,15 +909,38 @@
   }
 
   function renderToolbar(products) {
-    return '<section class="catalog-toolbar">' +
-      '<div><h2>' + (state.query ? 'Search results' : 'Available items') + '</h2><p>' + esc(products.length) + ' item' + (products.length === 1 ? '' : 's') + (state.category !== 'All' ? ' in ' + esc(state.category) : '') + '</p></div>' +
-      '<label class="sort-control"><span>Sort</span><select id="sort-select">' +
-      '<option value="featured" ' + (state.sort === 'featured' ? 'selected' : '') + '>Recommended</option>' +
-      '<option value="price-low" ' + (state.sort === 'price-low' ? 'selected' : '') + '>Price low</option>' +
-      '<option value="price-high" ' + (state.sort === 'price-high' ? 'selected' : '') + '>Price high</option>' +
-      '<option value="name" ' + (state.sort === 'name' ? 'selected' : '') + '>Name</option>' +
-      '</select></label>' +
-      '</section>';
+    var source = catalogProductsBeforeOptionFilters();
+    var sizes = uniqueFilterValues(source.reduce(function (all, product) {
+      return all.concat(productFilterValues(product, 'size'));
+    }, []));
+    var colors = uniqueFilterValues(source.reduce(function (all, product) {
+      return all.concat(productFilterValues(product, 'color'));
+    }, []));
+    var hasFilters = Boolean(state.filterSize || state.filterColor);
+    var select = function (id, label, selected, values) {
+      if (values.length < 2 && !selected) return '';
+      return '<label class="catalog-filter"><span>' + label + '</span><select id="' + id + '">' +
+        '<option value="">All ' + label.toLowerCase() + 's</option>' +
+        values.map(function (value) {
+          return '<option value="' + esc(value) + '" ' + (selected === value ? 'selected' : '') + '>' + esc(value) + '</option>';
+        }).join('') +
+      '</select></label>';
+    };
+    return '<section class="catalog-toolbar" aria-label="Sort and filter items">' +
+      '<div class="catalog-result-count"><b>' + esc(products.length) + '</b><span>item' + (products.length === 1 ? '' : 's') + '</span></div>' +
+      '<div class="catalog-filter-controls">' +
+        '<label class="catalog-filter"><span>Sort</span><select id="sort-select">' +
+          '<option value="featured" ' + (state.sort === 'featured' ? 'selected' : '') + '>Recommended</option>' +
+          '<option value="newest" ' + (state.sort === 'newest' ? 'selected' : '') + '>Newest</option>' +
+          '<option value="price-low" ' + (state.sort === 'price-low' ? 'selected' : '') + '>Cheapest</option>' +
+          '<option value="price-high" ' + (state.sort === 'price-high' ? 'selected' : '') + '>Most expensive</option>' +
+          '<option value="name" ' + (state.sort === 'name' ? 'selected' : '') + '>Name</option>' +
+        '</select></label>' +
+        select('size-filter', 'Size', state.filterSize, sizes) +
+        select('color-filter', 'Color', state.filterColor, colors) +
+        (hasFilters ? '<button class="clear-catalog-filters" type="button" data-clear-option-filters>Clear</button>' : '') +
+      '</div>' +
+    '</section>';
   }
 
   function renderCatalogBody() {
@@ -886,6 +966,7 @@
       renderPromoBanner() +
       renderSubcategoryChips() +
       gridTitle +
+      renderToolbar(products) +
       productGrid +
       orderCard +
     '</main>';
@@ -923,13 +1004,12 @@
     var discount = percentOff(product);
     var telegram = botUrl(product);
     var cakeProduct = isCakeProduct(product);
-    var codeBadge = (!cakeProduct && product.code) ? '<span>' + esc(product.code) + '</span>' : '';
-    var codeFact = (!cakeProduct && product.code) ? '<div><span>Code</span><b>' + esc(product.code) + '</b></div>' : '';
+    var codeBadge = (!cakeProduct && product.code) ? '<span class="detail-code">' + esc(product.code) + '</span>' : '';
     var cakeFields = cakeProduct
       ? '<div class="cake-order-box"><h3>Personalize your cake</h3><label>What should we write on the cake?<textarea name="cakeWritingText" rows="2" placeholder="Example: Happy Birthday Hana"></textarea><small>If you do not want writing on the cake, leave this empty.</small></label><div class="form-grid two"><label>Needed date<input name="cakeNeededDate" type="date"></label><label>Preferred time<input name="cakeNeededTime" type="time"></label></div></div>'
       : '';
     return '<main class="screen detail-screen">' +
-      '<button class="back-inline" type="button" id="detail-back">Back to shop</button>' +
+      '<button class="back-inline" type="button" id="detail-back">Home</button>' +
       '<section class="detail-hero">' +
         '<div class="detail-gallery">' +
           (activeImage ? '<button class="detail-image-button" type="button" data-open-image="' + esc(activeImage) + '"><img class="detail-image" src="' + esc(activeImage) + '" alt="' + esc(product.name) + '"></button>' : '<div class="detail-image empty-image">No Image</div>') +
@@ -942,14 +1022,11 @@
         '<div class="detail-body">' +
           '<p class="eyebrow">' + esc(product.category || 'Item') + (product.subcategory ? ' / ' + esc(product.subcategory) : '') + '</p>' +
           '<h2>' + esc(product.name) + '</h2>' +
-          '<div class="detail-price-row"><div><strong>' + esc(money(product.price)) + '</strong>' + (moneyNumber(product.compareAtPrice) > moneyNumber(product.price) ? '<del>' + esc(money(product.compareAtPrice)) + '</del>' : '') + '</div>' + codeBadge + '</div>' +
-          '<button class="share-product-btn" type="button" data-share-product aria-label="Share ' + esc(product.name) + '">' + svgIcon('share') + '<span>Share this item</span></button>' +
-          '<div class="product-facts">' +
-            codeFact +
-            '<div><span>Status</span><b>' + esc(product.availability || 'Available') + '</b></div>' +
-            (discount ? '<div><span>Offer</span><b>' + discount + '% off</b></div>' : '') +
-          '</div>' +
           (product.description ? '<p class="detail-desc">' + esc(product.description) + '</p>' : '') +
+          '<div class="detail-price-row"><div><strong>' + esc(money(product.price)) + '</strong>' + (moneyNumber(product.compareAtPrice) > moneyNumber(product.price) ? '<del>' + esc(money(product.compareAtPrice)) + '</del>' : '') + '</div>' +
+            '<div class="detail-price-actions"><button class="share-product-btn" type="button" data-share-product aria-label="Share ' + esc(product.name) + '">' + svgIcon('share') + '<span>Share</span></button>' +
+            codeBadge + (discount ? '<span class="detail-offer">' + discount + '% off</span>' : '') + '</div>' +
+          '</div>' +
           (telegram && !isTelegramOpen() ? '<div class="telegram-nudge"><div><b>For a better experience</b><span>Open this item in Telegram for faster support and saved chat history.</span></div><a href="' + esc(telegram) + '" target="_blank" rel="noopener">Open Telegram</a></div>' : '') +
           renderCheckoutProgress('details') +
           '<div class="order-card-title"><h3>Order this item</h3><p>Your saved account details are filled automatically.</p></div>' +
@@ -1121,6 +1198,8 @@
       state.saleOnly = false;
       state.query = '';
       state.searchOpen = false;
+      state.filterSize = '';
+      state.filterColor = '';
     }
     syncHistory(historyMode);
     render();
@@ -1297,6 +1376,22 @@
         refreshCatalogBody();
       });
     }
+    var sizeFilter = document.getElementById('size-filter');
+    if (sizeFilter) sizeFilter.addEventListener('change', function () {
+      state.filterSize = sizeFilter.value || '';
+      refreshCatalogBody();
+    });
+    var colorFilter = document.getElementById('color-filter');
+    if (colorFilter) colorFilter.addEventListener('change', function () {
+      state.filterColor = colorFilter.value || '';
+      refreshCatalogBody();
+    });
+    var clearFilters = document.querySelector('[data-clear-option-filters]');
+    if (clearFilters) clearFilters.addEventListener('click', function () {
+      state.filterSize = '';
+      state.filterColor = '';
+      refreshCatalogBody();
+    });
   }
 
   function bindCatalogEvents() {
@@ -1305,6 +1400,8 @@
         state.category = button.getAttribute('data-category') || 'All';
         state.subcategory = 'All';
         state.saleOnly = false;
+        state.filterSize = '';
+        state.filterColor = '';
         void trackMiniappEvent('category_view', { category: state.category });
         refreshCatalogBody();
       });
@@ -1315,6 +1412,8 @@
         state.category = state.saleOnly ? 'All' : (button.getAttribute('data-tile-category') || 'All');
         state.subcategory = state.saleOnly ? 'All' : (button.getAttribute('data-tile-subcategory') || 'All');
         state.query = '';
+        state.filterSize = '';
+        state.filterColor = '';
         void trackMiniappEvent(state.subcategory !== 'All' ? 'subcategory_view' : 'category_view', {
           category: state.category,
           subcategory: state.subcategory
@@ -1326,6 +1425,8 @@
       button.addEventListener('click', function () {
         state.subcategory = button.getAttribute('data-subcategory') || 'All';
         state.saleOnly = false;
+        state.filterSize = '';
+        state.filterColor = '';
         void trackMiniappEvent('subcategory_view', { category: state.category, subcategory: state.subcategory });
         refreshCatalogBody();
       });
@@ -1354,6 +1455,8 @@
         state.saleOnly = false;
         state.query = '';
         state.searchOpen = false;
+        state.filterSize = '';
+        state.filterColor = '';
         syncHistory();
         render();
       });

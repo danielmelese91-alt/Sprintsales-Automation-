@@ -114,6 +114,7 @@ let data = {
       clientId: 'client_1',
       name: 'Smart Fitness Watch',
       code: 'SW-200',
+      createdAt: '2026-01-02T10:00:00.000Z',
       price: 4500,
       category: 'Electronics',
       subcategory: 'Wearables',
@@ -240,6 +241,7 @@ try {
   assert.equal(catalog.products.length, 2);
   assert.equal(catalog.products[0].id, 'p_active');
   assert.equal(catalog.products[0].featured, true);
+  assert.equal(catalog.products[0].createdAt, '2026-01-02T10:00:00.000Z');
   assert.equal(catalog.products[0].images.length, 5);
   assert.equal(catalog.products[0].images[0], '/uploads/products/client_1/watch.watermarked-1.jpg');
   assert.equal(catalog.products[0].images[4], '/uploads/products/client_1/watch.watermarked-5.jpg');

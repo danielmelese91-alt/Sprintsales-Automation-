@@ -341,6 +341,8 @@ const serializeProduct = product => ({
   code: product.code || product.productCode || product.product_code || '',
   name: product.name || '',
   description: String(product.description || product.salesPostCaption || product.caption || '').slice(0, 220),
+  createdAt: product.createdAt || product.created_at || '',
+  updatedAt: product.updatedAt || product.updated_at || '',
   featured: product.featured === true || product.isFeatured === true || product.miniappFeatured === true,
   price: productPrice(product),
   compareAtPrice: product.compareAtPrice || product.oldPrice || '',
