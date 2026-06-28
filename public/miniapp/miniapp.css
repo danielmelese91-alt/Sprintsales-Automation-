@@ -9,7 +9,10 @@
   --card: #ffffff;
   --shadow: 0 18px 48px rgba(15, 42, 82, 0.1);
   --shadow-soft: 0 10px 26px rgba(15, 42, 82, 0.07);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Segoe UI", Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-price: "Arial Narrow", "Roboto Condensed", "Segoe UI", sans-serif;
+  font-family: var(--font-body);
 }
 
 * {
@@ -30,12 +33,94 @@ body {
     radial-gradient(circle at 92% 10%, color-mix(in srgb, var(--navy) 10%, transparent), transparent 24rem),
     linear-gradient(180deg, #f8fbff 0%, #edf4fb 100%);
   color: var(--ink);
+  font-family: var(--font-body);
 }
 
 button,
 input,
 textarea {
-  font: inherit;
+  font-family: var(--font-body);
+}
+
+body.retail-fashion {
+  --font-body: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  --font-display: Didot, "Bodoni MT", "Times New Roman", serif;
+  --font-price: "Avenir Next Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+}
+
+body.retail-electronics {
+  --font-body: "Segoe UI", Tahoma, Arial, sans-serif;
+  --font-display: "Arial Narrow", "Segoe UI Semibold", Arial, sans-serif;
+  --font-price: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+body.retail-beauty {
+  --font-body: "Segoe UI", Tahoma, sans-serif;
+  --font-display: "Palatino Linotype", "Book Antiqua", Palatino, serif;
+  --font-price: "Segoe UI Semibold", "Arial Narrow", sans-serif;
+}
+
+body.retail-shoes {
+  --font-body: "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-display: Impact, "Arial Narrow", "Trebuchet MS", sans-serif;
+  --font-price: "Arial Narrow", "Trebuchet MS", sans-serif;
+}
+
+body.retail-bags {
+  --font-body: "Avenir Next", "Segoe UI", sans-serif;
+  --font-display: "Bodoni MT", Didot, Georgia, serif;
+  --font-price: "Avenir Next Condensed", "Arial Narrow", sans-serif;
+}
+
+body.retail-home {
+  --font-body: Aptos, Calibri, "Segoe UI", sans-serif;
+  --font-display: "Trebuchet MS", Aptos, "Segoe UI", sans-serif;
+  --font-price: "Arial Narrow", Aptos, sans-serif;
+}
+
+body.retail-furniture {
+  --font-body: "Segoe UI", Tahoma, sans-serif;
+  --font-display: Rockwell, "Rockwell Nova", Georgia, serif;
+  --font-price: "Arial Narrow", "Segoe UI", sans-serif;
+}
+
+body.retail-cakes {
+  --font-body: "Trebuchet MS", "Segoe UI", sans-serif;
+  --font-display: "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-price: "Trebuchet MS", "Arial Narrow", sans-serif;
+}
+
+body.retail-general {
+  --font-body: Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-display: "Segoe UI Semibold", Inter, sans-serif;
+  --font-price: "Arial Narrow", "Segoe UI", sans-serif;
+}
+
+.brand-button b,
+.hero-greeting h1,
+.section-title h2,
+.commerce-section-title h2,
+.catalog-toolbar h2,
+.featured-copy b,
+.editorial-feature-copy b,
+.cake-feature-copy b,
+.promo-banner b,
+.product-name,
+.detail-body h2,
+.result-panel h2,
+.order-card-title h3 {
+  font-family: var(--font-display);
+}
+
+.price,
+.featured-copy small,
+.editorial-feature-copy em,
+.cake-feature-copy em,
+.detail-price-row strong,
+.checkout-summary b,
+.sticky-buy-bar b {
+  font-family: var(--font-price);
+  font-variant-numeric: tabular-nums;
 }
 
 button {
@@ -882,23 +967,33 @@ h1 {
 }
 
 .spec-preview {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  display: flex;
+  gap: 7px;
   margin-top: 14px;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+}
+
+.spec-preview::-webkit-scrollbar {
+  display: none;
 }
 
 .spec-preview div {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  gap: 6px;
   border: 1px solid rgba(230, 235, 242, 0.96);
-  border-radius: 15px;
+  border-radius: 10px;
   background: #fbfdff;
-  padding: 10px;
+  padding: 8px 10px;
+  white-space: nowrap;
 }
 
 .spec-preview span,
 .spec-preview b {
-  display: block;
-  overflow-wrap: anywhere;
+  display: inline;
 }
 
 .spec-preview span {
@@ -912,7 +1007,7 @@ h1 {
   color: var(--ink);
   font-size: 12px;
   line-height: 1.35;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .telegram-nudge {
@@ -2610,7 +2705,7 @@ body {
 .commerce-section-title h2 {
   margin: 0;
   color: #17110c;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 23px;
 }
 
@@ -2952,7 +3047,7 @@ body.template-editorial .brand-button small {
 }
 
 body.template-editorial .brand-button b {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 18px;
   font-weight: 700;
 }
@@ -3023,8 +3118,10 @@ body.template-editorial .telegram-soft {
 
 body.template-editorial .editorial-featured-section {
   position: relative;
-  margin: 0 -20px 34px;
+  margin: 12px 0 34px;
+  border-radius: 10px;
   overflow: hidden;
+  box-shadow: 0 18px 42px color-mix(in srgb, var(--editorial-dark) 16%, transparent);
 }
 
 body.template-editorial .editorial-featured-rail {
@@ -3047,6 +3144,7 @@ body.template-editorial .editorial-feature-card {
   border: 0;
   padding: 0;
   overflow: hidden;
+  border-radius: 10px;
   background: #d8d3c6;
   color: white;
   text-align: left;
@@ -3094,7 +3192,7 @@ body.template-editorial .editorial-feature-copy small {
 
 body.template-editorial .editorial-feature-copy b {
   margin-top: 10px;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: clamp(36px, 7vw, 68px);
   font-weight: 500;
   line-height: 0.98;
@@ -3163,7 +3261,7 @@ body.template-editorial .category-browse {
 
 body.template-editorial .category-browse .section-title h2,
 body.template-editorial .commerce-section-title h2 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   color: #151812;
   font-size: clamp(25px, 4vw, 36px);
   font-weight: 500;
@@ -3197,7 +3295,7 @@ body.template-editorial .category-tile.active .tile-icon {
 body.template-editorial .category-tile b {
   max-width: 110px;
   color: #292b25;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 13px;
   font-weight: 600;
 }
@@ -3261,7 +3359,7 @@ body.template-editorial .compact-product .product-body {
 
 body.template-editorial .compact-product .product-name {
   color: #171914;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-display);
   font-size: 22px;
   font-weight: 600;
 }
@@ -3375,8 +3473,8 @@ body.template-editorial .account-card {
   }
 
   body.template-editorial .editorial-featured-section {
-    margin-right: -16px;
-    margin-left: -16px;
+    margin: 10px 0 28px;
+    border-radius: 9px;
   }
 
   body.template-editorial .editorial-feature-card {
@@ -3761,29 +3859,29 @@ body.cake-shop .product-card.cake-product-card .price {
   }
 
   body.cake-shop .cake-featured-section {
-    width: 100vw;
-    margin-left: calc(50% - 50vw);
-    margin-right: calc(50% - 50vw);
+    width: auto;
+    margin-right: 0;
+    margin-left: 0;
     gap: 10px;
   }
 
   body.cake-shop .cake-featured-section > .section-title,
   body.cake-shop .cake-feature-dots {
-    padding-left: max(14px, env(safe-area-inset-left, 0px));
-    padding-right: max(14px, env(safe-area-inset-right, 0px));
+    padding-right: 0;
+    padding-left: 0;
   }
 
   body.cake-shop .cake-feature-hero {
     min-height: min(68vh, 540px);
-    border-radius: 0;
-    box-shadow: none;
+    border-radius: 14px;
+    box-shadow: 0 20px 46px color-mix(in srgb, var(--navy) 18%, transparent);
   }
 
   body.cake-shop .cake-feature-hero .cake-feature-card,
   body.cake-shop .cake-feature-hero .cake-feature-card img,
   body.cake-shop .cake-feature-hero .cake-feature-card .featured-empty {
     min-height: min(68vh, 540px);
-    border-radius: 0;
+    border-radius: 14px;
   }
 }
 
@@ -3835,20 +3933,20 @@ body.cake-shop .product-card.cake-product-card .price {
   }
 
   body.cake-shop .cake-featured-section > .section-title {
-    padding: 0 12px;
+    padding: 0;
   }
 
   body.cake-shop .cake-feature-hero {
     min-height: min(68vh, 540px);
-    border-radius: 0;
-    box-shadow: none;
+    border-radius: 12px;
+    box-shadow: 0 18px 42px color-mix(in srgb, var(--navy) 18%, transparent);
   }
 
   body.cake-shop .cake-feature-hero .cake-feature-card,
   body.cake-shop .cake-feature-hero .cake-feature-card img,
   body.cake-shop .cake-feature-hero .cake-feature-card .featured-empty {
     min-height: min(68vh, 540px);
-    border-radius: 0;
+    border-radius: 12px;
   }
 
   body.cake-shop .cake-feature-card,

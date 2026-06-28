@@ -215,6 +215,19 @@
     return !isCakeShop() && String((state.shop && state.shop.template) || '') === 'editorial-boutique';
   }
 
+  function retailStyleKey() {
+    var text = String((state.shop && state.shop.retailType) || '').toLowerCase();
+    if (/cake|bakery|pastry|dessert/.test(text)) return 'cakes';
+    if (/shoe|sneaker|footwear/.test(text)) return 'shoes';
+    if (/bag|accessor|leather/.test(text)) return 'bags';
+    if (/fashion|boutique|cloth|apparel/.test(text)) return 'fashion';
+    if (/electron|phone|computer|laptop|gadget/.test(text)) return 'electronics';
+    if (/beauty|cosmetic|makeup|skincare|perfume|salon/.test(text)) return 'beauty';
+    if (/furniture|sofa|bed|chair/.test(text)) return 'furniture';
+    if (/home|kitchen|appliance|cookware|household/.test(text)) return 'home';
+    return 'general';
+  }
+
   function isCakeProduct(product) {
     var text = [product && product.category, product && product.subcategory, product && product.name].join(' ').toLowerCase();
     return isCakeShop() || /\b(cakes?|bakery|cupcakes?|pastries?|desserts?|birthday|wedding|fondant|bento)\b/.test(text);
@@ -1714,6 +1727,7 @@
       document.title = /\bshop\b/i.test(titleName) ? titleName : titleName + ' Shop';
       document.body.classList.toggle('cake-shop', isCakeShop());
       document.body.classList.toggle('template-editorial', isEditorialTemplate());
+      document.body.classList.add('retail-' + retailStyleKey());
       var websiteMainColor = state.shop.themeColor || '#173b67';
       var websiteAccentColor = state.shop.accentColor || '#20a39e';
       document.documentElement.style.setProperty('--navy', websiteMainColor);
