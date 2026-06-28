@@ -541,9 +541,9 @@
       '<div class="header-main">' +
         '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Online shop</small></span></button>' +
         '<div class="header-icons">' +
-          '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '</button>' +
-          (isEditorialTemplate() ? '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '</button>' : '') +
-          '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '</button>' +
+          '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '<span class="desktop-action-label">Search</span></button>' +
+          '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '<span class="desktop-action-label">Orders</span></button>' +
+          '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '<span class="desktop-action-label">Account</span></button>' +
         '</div>' +
       '</div>' +
       (state.searchOpen ? '<div class="search-drawer"><input id="search-input" value="' + esc(state.query) + '" placeholder="Search name, code, color, size"><button class="bot-link" type="button" data-search-submit>Search</button></div>' : '') +
@@ -564,9 +564,9 @@
         '<button class="brand-button" type="button" data-view="catalog">' + logo + '<span><b>' + esc(shop.businessName || 'Shop') + '</b><small>Online shop</small></span></button>' +
         (addressLine ? '<a class="branch-chip" href="' + esc(map) + '" target="_blank" rel="noopener" title="' + esc(shop.addressLine || addressLine) + '">' + svgIcon('location') + ' <span>' + esc(addressLine) + '</span></a>' : '') +
         '<div class="header-icons">' +
-          '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '</button>' +
-          (isEditorialTemplate() ? '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '</button>' : '') +
-          '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '</button>' +
+          '<button class="icon-btn" type="button" data-toggle-search title="Search">' + svgIcon('search') + '<span class="desktop-action-label">Search</span></button>' +
+          '<button class="icon-btn" type="button" data-view="track" title="My orders">' + svgIcon('orders') + '<span class="desktop-action-label">Orders</span></button>' +
+          '<button class="icon-btn" type="button" data-view="account" title="My account">' + svgIcon('user') + '<span class="desktop-action-label">Account</span></button>' +
         '</div>' +
       '</div>' +
       (state.searchOpen ? '<div class="search-drawer home-drawer"><input id="search-input" value="' + esc(state.query) + '" placeholder="Search name, code, color, size"><button class="bot-link" type="button" data-search-submit>Search</button></div>' : '') +
