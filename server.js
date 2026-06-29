@@ -82,7 +82,8 @@ const {
   generateProductflowGreeting,
   handleProductflowCallback,
   handleProductflowText,
-  handleProductflowContact
+  handleProductflowContact,
+  answerProductflowSupportQuestion
 } = require('./productflow_router.cjs');
 dotenv.config({ path: path.join(__dirname, '.env') });
 dotenv.config();
@@ -1036,6 +1037,7 @@ const routeDeps = {
     MB,
     Telegraf,
     addAuditLog,
+    answerProductflowSupportQuestion,
     bookingNextAction,
     bookingStatusCustomerMessage,
     botDebugForClient,
@@ -1089,6 +1091,7 @@ const routeDeps = {
     normalizeProvider,
     notifyLowStock,
     now,
+    prepareCustomerReply,
     orderGuardrails,
     orderLineTotal,
     orderPayload,

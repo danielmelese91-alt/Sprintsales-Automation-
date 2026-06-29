@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
 import { miniappTemplateForClient } from '../config/miniapp-templates.js';
 import { websiteThemeForClient } from '../config/retail-themes.js';
 
@@ -91,6 +92,31 @@ const cleanSessionId = value => String(value || '')
   .trim()
   .replace(/[^A-Za-z0-9_.:-]/g, '')
   .slice(0, 90);
+
+const verifiedTelegramWebAppUser = (initData, botToken) => {
+  const raw = String(initData || '').trim();
+  const token = String(botToken || '').trim();
+  if (!raw || !token) return null;
+  try {
+    const params = new URLSearchParams(raw);
+    const receivedHash = String(params.get('hash') || '');
+    if (!/^[a-f0-9]{64}$/i.test(receivedHash)) return null;
+    params.delete('hash');
+    const authDate = Number(params.get('auth_date') || 0);
+    if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 24 * 60 * 60) return null;
+    const dataCheckString = [...params.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => `${key}=${value}`)
+      .join('\n');
+    const secretKey = crypto.createHmac('sha256', 'WebAppData').update(token).digest();
+    const expectedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(receivedHash, 'hex'), Buffer.from(expectedHash, 'hex'))) return null;
+    const user = JSON.parse(params.get('user') || '{}');
+    return /^\d{5,20}$/.test(String(user.id || '')) ? user : null;
+  } catch {
+    return null;
+  }
+};
 
 const statusAllowsCatalog = client => String(client?.status || '').toLowerCase() === 'active';
 
@@ -667,11 +693,18 @@ export function createMiniappRoutes(deps) {
     sendCustomerTelegramMessage = null,
     paymentVerificationService = null,
     isProductBusiness = () => true,
-    activeClientProducts
+    activeClientProducts,
+    answerProductflowSupportQuestion = null,
+    buildReply = null,
+    isMissingKnowledgeReply = () => false,
+    prepareCustomerReply = value => String(value || '')
   } = deps;
   const router = Router();
   const shellPath = path.join(publicDir, 'miniapp', 'index.html');
   let shellTemplatePromise = null;
+  const supportRequestWindows = new Map();
+  const SUPPORT_WINDOW_MS = 10 * 60 * 1000;
+  const SUPPORT_REQUEST_LIMIT = 8;
 
   const privateOwnerChatId = client => {
     const settings = client?.settings || {};
@@ -691,6 +724,129 @@ export function createMiniappRoutes(deps) {
       [{ text: 'Main Menu', callback_data: 'productflow:main_menu' }]
     ]
   });
+
+  const supportRateKey = (req, client, sessionId) => [
+    client.id,
+    sessionId,
+    String(req.get('x-forwarded-for') || req.ip || '').split(',')[0].trim()
+  ].join(':');
+
+  const supportRequestAllowed = (req, client, sessionId) => {
+    const key = supportRateKey(req, client, sessionId);
+    const cutoff = Date.now() - SUPPORT_WINDOW_MS;
+    const recent = (supportRequestWindows.get(key) || []).filter(timestamp => timestamp > cutoff);
+    if (recent.length >= SUPPORT_REQUEST_LIMIT) {
+      supportRequestWindows.set(key, recent);
+      return false;
+    }
+    recent.push(Date.now());
+    supportRequestWindows.set(key, recent);
+    if (supportRequestWindows.size > 2000) {
+      for (const [entryKey, timestamps] of supportRequestWindows) {
+        if (!timestamps.some(timestamp => timestamp > cutoff)) supportRequestWindows.delete(entryKey);
+      }
+    }
+    return true;
+  };
+
+  const supportConversationFor = (data, client, identity, customer = null) => {
+    data.conversations ||= [];
+    const telegramChatId = /^\d{5,20}$/.test(String(identity.telegramChatId || ''))
+      ? String(identity.telegramChatId)
+      : '';
+    let conversation = data.conversations.find(item =>
+      item.clientId === client.id &&
+      (
+        (telegramChatId && String(item.telegramChatId || '') === telegramChatId) ||
+        (identity.shopperSessionId && String(item.supportSessionId || '') === identity.shopperSessionId)
+      )
+    );
+    if (!conversation) {
+      conversation = {
+        id: uid('conv'),
+        clientId: client.id,
+        telegramChatId,
+        supportSessionId: identity.shopperSessionId,
+        title: identity.fullName || identity.telegramUsername || 'Website shopper',
+        leadScore: 0,
+        salesStage: 'new',
+        salesStageUpdatedAt: now(),
+        salesStageHistory: [{ stage: 'new', at: now() }],
+        summary: null,
+        messageCount: 0,
+        source: 'miniapp_support',
+        createdAt: now(),
+        updatedAt: now()
+      };
+      data.conversations.push(conversation);
+    }
+    conversation.telegramChatId = telegramChatId || conversation.telegramChatId || '';
+    conversation.supportSessionId = identity.shopperSessionId || conversation.supportSessionId || '';
+    conversation.customerId = customer?.id || conversation.customerId || '';
+    conversation.customer = {
+      ...(conversation.customer || {}),
+      id: customer?.id || conversation.customer?.id || '',
+      name: identity.fullName || customer?.name || conversation.customer?.name || '',
+      username: identity.telegramUsername || customer?.username || conversation.customer?.username || '',
+      phone: identity.phone || customer?.phone || conversation.customer?.phone || '',
+      telegramChatId: telegramChatId || customer?.telegramChatId || conversation.customer?.telegramChatId || ''
+    };
+    conversation.stage = 'human_support';
+    conversation.updatedAt = now();
+    return conversation;
+  };
+
+  const appendSupportMessage = (data, client, conversation, direction, text, source, extra = {}) => {
+    data.messages ||= [];
+    const message = {
+      id: uid('msg'),
+      clientId: client.id,
+      conversationId: conversation.id,
+      direction,
+      text: clampText(text, 1800),
+      source,
+      createdAt: now(),
+      ...extra
+    };
+    data.messages.push(message);
+    conversation.messageCount = Number(conversation.messageCount || 0) + 1;
+    conversation.updatedAt = message.createdAt;
+    return message;
+  };
+
+  const supportMessagesFor = (data, client, conversation) => {
+    if (!conversation) return [];
+    const allowedSources = new Set([
+      'miniapp_support_customer',
+      'miniapp_support_local',
+      'miniapp_support_ai',
+      'miniapp_support_handoff',
+      'owner-support-reply'
+    ]);
+    return (data.messages || [])
+      .filter(message =>
+        message.clientId === client.id &&
+        message.conversationId === conversation.id &&
+        allowedSources.has(String(message.source || ''))
+      )
+      .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+      .slice(-60)
+      .map(message => ({
+        id: message.id,
+        direction: message.direction,
+        text: message.text,
+        source: message.source,
+        createdAt: message.createdAt
+      }));
+  };
+
+  const aiNeedsHumanSupport = reply => {
+    const value = String(reply || '').trim();
+    return !value ||
+      isMissingKnowledgeReply(value) ||
+      /\b(?:let me|i(?:'|’)ll)\s+check with (?:the )?(?:team|shop)\b/i.test(value) ||
+      /\b(?:team|shop)\s+(?:will|can)\s+(?:review|reply|get back)\b/i.test(value);
+  };
 
   const paymentConfirmedCustomerMessage = (client, order) => [
     `${order.paymentMode === 'deposit' ? 'Kabd payment confirmed' : 'Payment confirmed'}. Thank you, ${order.customerName || 'dear customer'}!`,
@@ -1044,7 +1200,7 @@ export function createMiniappRoutes(deps) {
     if (!client || !isProductBusiness(client)) return res.status(404).json({ error: 'Shop not found' });
     const body = req.body || {};
     const type = String(body.type || body.eventType || '').trim().toLowerCase();
-    const allowed = new Set(['shop_open', 'product_view', 'order_started', 'search', 'category_view', 'subcategory_view']);
+    const allowed = new Set(['shop_open', 'product_view', 'order_started', 'search', 'category_view', 'subcategory_view', 'support_open']);
     if (!allowed.has(type)) return res.status(400).json({ error: 'Unsupported MiniApp event.' });
     const identity = identityFromPayload(body, client);
     const products = (activeClientProducts ? activeClientProducts(data, client.id) : (data.products || []).filter(product => product.clientId === client.id))
@@ -1067,6 +1223,160 @@ export function createMiniappRoutes(deps) {
         status: intent.status,
         viewCount: intent.viewCount || 0
       } : null
+    });
+  });
+
+  router.get('/api/miniapp/shop/:slug/support', async (req, res) => {
+    const data = await readData();
+    const client = findClientForMiniapp(data, req.params.slug, requestHost(req));
+    if (!client || !isProductBusiness(client)) return res.status(404).json({ error: 'Shop not found' });
+    const identity = identityFromPayload(req.query || {}, client);
+    if (!identity.shopperSessionId) return res.status(400).json({ error: 'A shopper session is required.' });
+    const conversation = (data.conversations || []).find(item =>
+      item.clientId === client.id &&
+      String(item.supportSessionId || '') === identity.shopperSessionId
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      messages: supportMessagesFor(data, client, conversation),
+      waitingForTeam: Boolean((data.unansweredQuestions || []).find(question =>
+        question.clientId === client.id &&
+        question.status !== 'resolved' &&
+        String(question.shopperSessionId || '') === identity.shopperSessionId
+      ))
+    });
+  });
+
+  router.post('/api/miniapp/shop/:slug/support', async (req, res) => {
+    if (!writeData) return res.status(500).json({ error: 'Website support is not configured.' });
+    const data = await readData();
+    const client = findClientForMiniapp(data, req.params.slug, requestHost(req));
+    if (!client || !isProductBusiness(client)) return res.status(404).json({ error: 'Shop not found' });
+    const body = req.body || {};
+    const identity = identityFromPayload(body, client);
+    const verifiedTelegramUser = verifiedTelegramWebAppUser(body.telegramInitData, client.settings?.botToken);
+    identity.telegramUserId = verifiedTelegramUser ? String(verifiedTelegramUser.id) : '';
+    identity.telegramChatId = identity.telegramUserId;
+    identity.telegramUsername = verifiedTelegramUser?.username || '';
+    identity.fullName ||= [verifiedTelegramUser?.first_name, verifiedTelegramUser?.last_name].filter(Boolean).join(' ').trim();
+    const question = clampText(body.message || body.question, 700);
+    if (!identity.shopperSessionId) return res.status(400).json({ error: 'A shopper session is required.' });
+    if (question.length < 2) return res.status(400).json({ error: 'Please write your question.' });
+    if (!supportRequestAllowed(req, client, identity.shopperSessionId)) {
+      return res.status(429).json({ error: 'Please wait a few minutes before sending another question.' });
+    }
+
+    const customer = upsertMiniappCustomer(data, client, identity);
+    const conversation = supportConversationFor(data, client, identity, customer);
+    appendSupportMessage(data, client, conversation, 'inbound', question, 'miniapp_support_customer');
+    recordMiniappEvent(data, client, customer, 'support_question', { ...body, query: question });
+
+    let reply = '';
+    let source = 'human_handoff';
+    if (typeof answerProductflowSupportQuestion === 'function') {
+      const local = await answerProductflowSupportQuestion(data, client, conversation, question).catch(error => {
+        console.warn(`Website support fact lookup failed for ${client.businessName}:`, error.message);
+        return null;
+      });
+      if (local?.reply) {
+        reply = prepareCustomerReply(local.reply, client);
+        source = 'shop_info';
+      }
+    }
+
+    if (!reply && typeof buildReply === 'function') {
+      const aiReply = await buildReply(data, client, conversation, question).catch(error => {
+        console.warn(`Website support AI failed for ${client.businessName}:`, error.message);
+        return '';
+      });
+      if (!aiNeedsHumanSupport(aiReply)) {
+        reply = prepareCustomerReply(aiReply, client);
+        source = 'ai';
+      }
+    }
+
+    let pendingQuestionId = '';
+    if (!reply) {
+      data.unansweredQuestions ||= [];
+      const supportQuestion = {
+        id: uid('unanswered'),
+        clientId: client.id,
+        conversationId: conversation.id,
+        question,
+        suggestedTopic: 'Website support',
+        source: 'miniapp_support',
+        status: 'open',
+        count: 1,
+        customerName: identity.fullName || customer.name || 'Website shopper',
+        username: identity.telegramUsername || customer.username || '',
+        telegramChatId: /^\d{5,20}$/.test(String(identity.telegramChatId || '')) ? identity.telegramChatId : '',
+        shopperSessionId: identity.shopperSessionId,
+        createdAt: now(),
+        lastAskedAt: now()
+      };
+      data.unansweredQuestions.push(supportQuestion);
+      pendingQuestionId = supportQuestion.id;
+      reply = 'I am not fully sure about that, so I sent your question to the shop team. Their answer will appear here as soon as they reply.';
+      appendSupportMessage(data, client, conversation, 'outbound', reply, 'miniapp_support_handoff', {
+        supportQuestionId: supportQuestion.id
+      });
+      if (typeof sendClientNotification === 'function') {
+        await sendClientNotification(
+          data,
+          client,
+          `website-support-${supportQuestion.id}`,
+          [
+            'Website support question needs your reply',
+            '',
+            `Customer: ${supportQuestion.customerName}`,
+            `Question: ${supportQuestion.question}`,
+            '',
+            'Reply to this message. SprintSales will show your answer to the shopper in the website support chat.'
+          ].join('\n'),
+          'support',
+          0,
+          {
+            supportReply: {
+              questionId: supportQuestion.id,
+              conversationId: conversation.id,
+              telegramChatId: supportQuestion.telegramChatId,
+              shopperSessionId: supportQuestion.shopperSessionId,
+              deliveryMode: supportQuestion.telegramChatId ? 'telegram_and_website' : 'website'
+            }
+          }
+        ).catch(error => console.warn(`Website support owner notification failed for ${client.businessName}:`, error.message));
+      }
+    } else {
+      appendSupportMessage(
+        data,
+        client,
+        conversation,
+        'outbound',
+        reply,
+        source === 'ai' ? 'miniapp_support_ai' : 'miniapp_support_local'
+      );
+    }
+
+    addAuditLog(data, {
+      actorType: 'shopper',
+      actorId: customer.id,
+      clientId: client.id,
+      action: source === 'human_handoff' ? 'miniapp.support-escalated' : 'miniapp.support-answered',
+      targetType: 'conversation',
+      target: conversation.id,
+      details: source === 'human_handoff'
+        ? 'Website support question was escalated to the business owner.'
+        : `Website support question was answered from ${source === 'ai' ? 'approved AI knowledge' : 'structured shop information'}.`
+    });
+    await writeData(data);
+    res.json({
+      ok: true,
+      reply,
+      source,
+      pendingQuestionId,
+      waitingForTeam: source === 'human_handoff',
+      messages: supportMessagesFor(data, client, conversation)
     });
   });
 

@@ -121,10 +121,13 @@ export function createNotificationService(deps) {
     if (!token || !ownerChatId || !supportReply.questionId) return false;
     const bot = new Telegraf(token);
     const questionId = String(supportReply.questionId || '').trim();
+    const websiteReply = supportReply.deliveryMode === 'website' || Boolean(supportReply.shopperSessionId);
     const body = [
       notificationHtml(text, client.businessName),
       '',
-      '<b>Reply action:</b> Reply directly to this Telegram message. SprintSales will send your reply to the shopper using your shop bot.',
+      websiteReply
+        ? '<b>Reply action:</b> Reply directly to this Telegram message. SprintSales will show your confirmed reply in the shopper’s website support chat.'
+        : '<b>Reply action:</b> Reply directly to this Telegram message. SprintSales will send your reply to the shopper using your shop bot.',
       `<b>Support Reply ID:</b> ${escapeHtml(questionId)}`
     ].join('\n');
     await bot.telegram.sendMessage(ownerChatId, body, {
@@ -138,6 +141,8 @@ export function createNotificationService(deps) {
       questionId,
       conversationId: supportReply.conversationId || '',
       telegramChatId: supportReply.telegramChatId || '',
+      shopperSessionId: supportReply.shopperSessionId || '',
+      deliveryMode: supportReply.deliveryMode || '',
       mode: 'awaiting_answer',
       createdAt: now()
     });
@@ -216,8 +221,9 @@ export function createNotificationService(deps) {
       return true;
     }
     const targetChatId = question.telegramChatId || (fresh.conversations || []).find(item => item.id === question.conversationId)?.telegramChatId || '';
-    if (!targetChatId) {
-      await ctx.reply('This question has no customer chat connected, so I could not forward the reply.');
+    const websiteSessionId = question.shopperSessionId || pending?.shopperSessionId || '';
+    if (!targetChatId && !websiteSessionId) {
+      await ctx.reply('This question has no customer chat or website session connected, so I could not forward the reply.');
       return true;
     }
     return queueSupportReplyPreview(ctx, fresh, client, question, answer);
@@ -243,12 +249,31 @@ export function createNotificationService(deps) {
       await ctx.answerCbQuery('This must come from the configured owner account.');
       return true;
     }
-    const targetChatId = question.telegramChatId || (fresh.conversations || []).find(item => item.id === question.conversationId)?.telegramChatId || '';
-    if (!targetChatId) {
-      await ctx.answerCbQuery('No customer chat is connected.');
+    const conversation = (fresh.conversations || []).find(item => item.id === question.conversationId);
+    const targetChatId = question.telegramChatId || conversation?.telegramChatId || '';
+    const websiteSessionId = question.shopperSessionId || conversation?.supportSessionId || pending?.shopperSessionId || '';
+    if (!targetChatId && !websiteSessionId) {
+      await ctx.answerCbQuery('No customer chat or website session is connected.');
       return true;
     }
-    await sendCustomerReplyViaClientBot(fresh, client, targetChatId, pending.draftAnswer);
+    if (targetChatId) {
+      await sendCustomerReplyViaClientBot(fresh, client, targetChatId, pending.draftAnswer);
+    } else {
+      fresh.messages ||= [];
+      fresh.messages.push({
+        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        clientId: client.id,
+        conversationId: question.conversationId,
+        direction: 'outbound',
+        text: pending.draftAnswer,
+        createdAt: now(),
+        source: 'owner-support-reply'
+      });
+      if (conversation) {
+        conversation.stage = conversation.stage === 'human_support' ? 'greeting' : conversation.stage;
+        conversation.updatedAt = now();
+      }
+    }
     question.status = 'resolved';
     question.ownerReply = pending.draftAnswer.slice(0, 1800);
     question.repliedAt = now();
@@ -257,7 +282,11 @@ export function createNotificationService(deps) {
     setPendingSupportForChat(fresh, ctx.chat?.id, null);
     await writeData(fresh);
     await ctx.answerCbQuery('Sent.');
-    await ctx.editMessageText(`Sent to the shopper from ${client.businessName}'s bot.`);
+    await ctx.editMessageText(
+      targetChatId
+        ? `Sent to the shopper from ${client.businessName}'s bot.`
+        : `Sent to the shopper in ${client.businessName}'s website support chat.`
+    );
     return true;
   };
 

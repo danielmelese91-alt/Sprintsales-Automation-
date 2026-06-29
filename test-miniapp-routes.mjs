@@ -183,9 +183,13 @@ let data = {
   customers: [],
   productIntents: [],
   miniappEvents: [],
+  conversations: [],
+  messages: [],
+  unansweredQuestions: [],
   auditLogs: []
 };
 const customerTelegramMessages = [];
+const clientNotifications = [];
 
 const { activeClientProducts } = createProductService({
   clientFor: (fresh, id) => fresh.clients.find(item => item.id === id),
@@ -207,7 +211,10 @@ app.use(createMiniappRoutes({
   },
   now: () => '2026-01-01T00:00:00.000Z',
   addAuditLog: (target, entry) => target.auditLogs.push(entry),
-  sendClientNotification: async () => true,
+  sendClientNotification: async (...args) => {
+    clientNotifications.push(args);
+    return true;
+  },
   sendCustomerTelegramMessage: async (clientArg, chatId, text, extra) => {
     customerTelegramMessages.push({ clientId: clientArg.id, chatId, text, extra });
     return true;
@@ -218,6 +225,18 @@ app.use(createMiniappRoutes({
       return { action: 'verified', reason: 'Verified in test.', reference: 'FT123456789', amount: Number(order.paymentDueNow || order.total || 0), verifyRequestId: 'verify_1' };
     }
   },
+  answerProductflowSupportQuestion: async (_data, _client, _conversation, question) => (
+    /delivery to bole/i.test(question)
+      ? { reply: 'Delivery to Bole is 80 Birr. Maximum delivery time is 5 hours.' }
+      : null
+  ),
+  buildReply: async (_data, _client, _conversation, question) => (
+    /return policy/i.test(question)
+      ? 'Returns are accepted according to the saved shop policy.'
+      : 'I do not have that information yet. Please contact the business team directly, or share your question and I can ask the team to follow up.'
+  ),
+  isMissingKnowledgeReply: text => /^I do not have that information yet\./.test(String(text || '')),
+  prepareCustomerReply: text => String(text || '').replace(/\*\*/g, ''),
   isProductBusiness,
   activeClientProducts
 }));
@@ -329,6 +348,62 @@ try {
   assert.equal(data.customers[0].telegramChatId, '12345');
   assert.equal(data.customers[0].shopperSessionId, 'ss_test_device');
 
+  const localSupportResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'How much is delivery to Bole?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device'
+    })
+  });
+  assert.equal(localSupportResponse.status, 200);
+  const localSupport = await localSupportResponse.json();
+  assert.equal(localSupport.source, 'shop_info');
+  assert.match(localSupport.reply, /80 Birr/);
+  assert.equal(data.unansweredQuestions.length, 0);
+
+  const aiSupportResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'What is your return policy?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device'
+    })
+  });
+  assert.equal(aiSupportResponse.status, 200);
+  const aiSupport = await aiSupportResponse.json();
+  assert.equal(aiSupport.source, 'ai');
+  assert.match(aiSupport.reply, /saved shop policy/);
+
+  const handoffSupportResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Can you make a custom midnight delivery exception?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device',
+      telegramChatId: '999999999'
+    })
+  });
+  assert.equal(handoffSupportResponse.status, 200);
+  const handoffSupport = await handoffSupportResponse.json();
+  assert.equal(handoffSupport.source, 'human_handoff');
+  assert.equal(handoffSupport.waitingForTeam, true);
+  assert.equal(data.unansweredQuestions.length, 1);
+  assert.equal(data.unansweredQuestions[0].source, 'miniapp_support');
+  assert.equal(data.unansweredQuestions[0].shopperSessionId, 'ss_test_device');
+  assert.equal(data.unansweredQuestions[0].telegramChatId, '');
+  assert.equal(clientNotifications.length, 1);
+
+  const supportHistoryResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support?sessionId=ss_test_device`);
+  assert.equal(supportHistoryResponse.status, 200);
+  const supportHistory = await supportHistoryResponse.json();
+  assert.equal(supportHistory.waitingForTeam, true);
+  assert.equal(supportHistory.messages.length, 6);
+  assert.equal(supportHistory.messages.at(-1).source, 'miniapp_support_handoff');
+
   const viewEventBody = {
     type: 'product_view',
     productId: 'p_active',
@@ -347,7 +422,7 @@ try {
   assert.equal(data.productIntents.length, 1);
   assert.equal(data.productIntents[0].source, 'repeat_view');
   assert.equal(data.productIntents[0].viewCount, 1);
-  assert.equal(data.miniappEvents.length, 1);
+  assert.equal(data.miniappEvents.filter(event => event.type === 'product_view').length, 1);
 
   const secondViewResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/events`, {
     method: 'POST',
@@ -358,7 +433,7 @@ try {
   assert.equal(data.productIntents.length, 1);
   assert.equal(data.productIntents[0].status, 'active');
   assert.equal(data.productIntents[0].viewCount, 2);
-  assert.equal(data.miniappEvents.length, 2);
+  assert.equal(data.miniappEvents.filter(event => event.type === 'product_view').length, 2);
 
   const orderStartedResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/events`, {
     method: 'POST',

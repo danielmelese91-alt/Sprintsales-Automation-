@@ -4089,6 +4089,12 @@ async function supportLocalAnswer(client, conversation, text) {
   return answer ? { handled: true, reply: answer, buttons: supportQuestionButtons(), stage: 'human_support' } : null;
 }
 
+async function answerProductflowSupportQuestion(data, client, conversation, text) {
+  applyShopperLanguage(client, conversation);
+  enrichClientProducts(data, client);
+  return supportLocalAnswer(client, conversation, text);
+}
+
 async function handleSupportText(data, client, conversation, text) {
   const local = await supportLocalAnswer(client, conversation, text);
   if (local) return local;
@@ -5028,4 +5034,5 @@ module.exports = {
   handleProductflowContact,
   handleProductflowMessage,
   handlePaymentScreenshot,
+  answerProductflowSupportQuestion,
 };

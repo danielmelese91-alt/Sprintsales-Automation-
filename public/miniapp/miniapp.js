@@ -23,6 +23,11 @@
     shopperSessionId: '',
     serverOrders: [],
     ordersLoaded: false,
+    supportMessages: [],
+    supportLoaded: false,
+    supportSending: false,
+    supportError: '',
+    supportWaitingForTeam: false,
     imageViewer: null,
     cakeFeaturedIndex: 0,
     editorialFeaturedIndex: 0,
@@ -30,6 +35,7 @@
   };
   var cakeFeaturedTimer = null;
   var editorialFeaturedTimer = null;
+  var supportPollTimer = null;
 
   function esc(value) {
     return String(value == null ? '' : value)
@@ -80,6 +86,7 @@
     if (state.selectedProduct) return new URL(productPath(state.selectedProduct), location.origin);
     if (state.view === 'account') url.searchParams.set('view', 'account');
     if (state.view === 'track') url.searchParams.set('view', 'orders');
+    if (state.view === 'support') url.searchParams.set('view', 'support');
     if (state.query) url.searchParams.set('search', state.query);
     return url;
   }
@@ -132,7 +139,9 @@
     state.filterSize = '';
     state.filterColor = '';
     var view = String(params.get('view') || '').toLowerCase();
-    state.view = view === 'account' ? 'account' : (view === 'orders' || view === 'track' ? 'track' : 'catalog');
+    state.view = view === 'account'
+      ? 'account'
+      : (view === 'orders' || view === 'track' ? 'track' : (view === 'support' ? 'support' : 'catalog'));
     if (product) state.view = 'catalog';
   }
 
@@ -545,6 +554,7 @@
       home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"></path><path d="M6 10v10h12V10"></path></svg>',
       orders: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10v16H7z"></path><path d="M9 8h6M9 12h6M9 16h4"></path></svg>',
       settings: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M19.1 4.9l-2.8 2.8M7.7 16.3l-2.8 2.8"></path></svg>',
+      support: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v11H9l-4 4V5z"></path><path d="M8 9h8M8 12h5"></path></svg>',
       location: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s7-6 7-12a7 7 0 0 0-14 0c0 6 7 12 7 12z"></path><circle cx="12" cy="9" r="2"></circle></svg>',
       tag: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12V5h7l9 9-7 7-9-9z"></path><circle cx="8" cy="8" r="1.5"></circle></svg>',
       phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="20" rx="2"></rect><path d="M11 18h2"></path></svg>',
@@ -763,7 +773,7 @@
   function renderBottomNav() {
     return '<nav class="bottom-nav" aria-label="Shop navigation">' +
       '<button class="' + activeClass('catalog') + '" type="button" data-view="catalog"><span>' + svgIcon('home') + '</span><b>Home</b></button>' +
-      '<button type="button" data-toggle-search><span>' + svgIcon('search') + '</span><b>Search</b></button>' +
+      '<button class="' + activeClass('support') + '" type="button" data-view="support"><span>' + svgIcon('support') + '</span><b>Support</b></button>' +
       '<button class="' + activeClass('track') + '" type="button" data-view="track"><span>' + svgIcon('orders') + '</span><b>Orders</b></button>' +
       '<button class="' + activeClass('account') + '" type="button" data-view="account"><span>' + svgIcon('user') + '</span><b>Profile</b></button>' +
     '</nav>';
@@ -1148,6 +1158,154 @@
     '</main>';
   }
 
+  function supportIdentity() {
+    var account = state.account || defaultAccount();
+    var webApp = window.Telegram && window.Telegram.WebApp;
+    return {
+      shopperSessionId: state.shopperSessionId || ensureShopperSessionId(),
+      fullName: account.fullName || '',
+      phone: account.phone || '',
+      address: account.address || '',
+      telegramChatId: account.telegramChatId || account.telegramUserId || '',
+      telegramUserId: account.telegramUserId || '',
+      telegramUsername: account.telegramUsername || '',
+      telegramInitData: webApp && webApp.initData || ''
+    };
+  }
+
+  function supportMessagesHtml() {
+    if (!state.supportMessages.length) {
+      return '<div class="support-welcome">' +
+        '<span>' + svgIcon('support') + '</span>' +
+        '<div><b>How can I help?</b><p>Ask about an item, price, delivery, payment, discount, or the shop. I will check the shop information first. If I am not sure, the shop team can reply here.</p></div>' +
+      '</div>';
+    }
+    return state.supportMessages.map(function (message) {
+      var customer = message.direction === 'inbound';
+      var teamReply = message.source === 'owner-support-reply';
+      return '<article class="support-message ' + (customer ? 'from-shopper' : 'from-shop') + '">' +
+        '<small>' + (customer ? 'You' : (teamReply ? 'Shop team' : (state.shop.businessName || 'Shop assistant'))) + '</small>' +
+        '<p>' + esc(message.text || '') + '</p>' +
+        (message.createdAt ? '<time>' + esc(new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) + '</time>' : '') +
+      '</article>';
+    }).join('');
+  }
+
+  function renderSupportPage() {
+    return '<main class="screen support-page">' +
+      '<section class="support-card">' +
+        '<div class="support-heading"><div><span class="support-heading-icon">' + svgIcon('support') + '</span><div><h2>Talk to support</h2><p>Quick answers from ' + esc(state.shop.businessName || 'the shop') + '</p></div></div>' +
+          (state.supportWaitingForTeam ? '<em>Waiting for shop reply</em>' : '<em>Online help</em>') +
+        '</div>' +
+        '<div id="support-thread" class="support-thread" aria-live="polite">' +
+          (state.supportLoaded ? supportMessagesHtml() : '<div class="support-loading">Opening your conversation...</div>') +
+        '</div>' +
+        (state.supportError ? '<p class="support-error" role="alert">' + esc(state.supportError) + '</p>' : '') +
+        '<form id="support-form" class="support-composer">' +
+          '<textarea name="message" rows="2" maxlength="700" placeholder="Type your question..." aria-label="Your question" required></textarea>' +
+          '<button type="submit" aria-label="Send question"' + (state.supportSending ? ' disabled' : '') + '>' +
+            (state.supportSending ? '<span class="support-send-spinner"></span>' : '<span>Send</span>') +
+          '</button>' +
+        '</form>' +
+      '</section>' +
+    '</main>';
+  }
+
+  function updateSupportThread() {
+    var thread = document.getElementById('support-thread');
+    if (thread) {
+      thread.innerHTML = supportMessagesHtml();
+      thread.scrollTop = thread.scrollHeight;
+    }
+    var headingStatus = document.querySelector('.support-heading > em');
+    if (headingStatus) headingStatus.textContent = state.supportWaitingForTeam ? 'Waiting for shop reply' : 'Online help';
+  }
+
+  async function loadSupportMessages(renderAfter) {
+    if (!state.shop) return;
+    try {
+      var params = new URLSearchParams({
+        sessionId: state.shopperSessionId || ensureShopperSessionId()
+      });
+      var response = await fetch('/api/miniapp/shop/' + encodeURIComponent(slugFromPath()) + '/support?' + params.toString(), {
+        credentials: 'same-origin',
+        cache: 'no-store'
+      });
+      var result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Support conversation could not be loaded.');
+      var oldSignature = state.supportMessages.map(function (item) { return item.id; }).join('|');
+      state.supportMessages = result.messages || [];
+      state.supportWaitingForTeam = Boolean(result.waitingForTeam);
+      state.supportLoaded = true;
+      state.supportError = '';
+      var newSignature = state.supportMessages.map(function (item) { return item.id; }).join('|');
+      if (renderAfter) render();
+      else if (state.view === 'support' && oldSignature !== newSignature) updateSupportThread();
+    } catch (error) {
+      state.supportLoaded = true;
+      state.supportError = error.message || 'Support conversation could not be loaded.';
+      if (renderAfter) render();
+    }
+  }
+
+  function stopSupportPolling() {
+    if (supportPollTimer) clearInterval(supportPollTimer);
+    supportPollTimer = null;
+  }
+
+  function startSupportPolling() {
+    stopSupportPolling();
+    if (state.view !== 'support') return;
+    supportPollTimer = setInterval(function () {
+      if (state.view === 'support' && !document.hidden) void loadSupportMessages(false);
+    }, 10000);
+  }
+
+  function bindSupportEvents() {
+    var form = document.getElementById('support-form');
+    if (!form) return;
+    form.addEventListener('submit', async function (event) {
+      event.preventDefault();
+      if (state.supportSending) return;
+      var field = form.elements.message;
+      var message = String(field && field.value || '').trim();
+      if (message.length < 2) {
+        state.supportError = 'Please write your question.';
+        render();
+        return;
+      }
+      state.supportSending = true;
+      state.supportError = '';
+      if (field) field.disabled = true;
+      var button = form.querySelector('button[type="submit"]');
+      if (button) {
+        button.disabled = true;
+        button.innerHTML = '<span class="support-send-spinner"></span>';
+      }
+      try {
+        var response = await fetch('/api/miniapp/shop/' + encodeURIComponent(slugFromPath()) + '/support', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(Object.assign(supportIdentity(), { message: message }))
+        });
+        var result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Your question could not be sent.');
+        state.supportMessages = result.messages || state.supportMessages;
+        state.supportWaitingForTeam = Boolean(result.waitingForTeam);
+        state.supportLoaded = true;
+        if (field) field.value = '';
+      } catch (error) {
+        state.supportError = error.message || 'Your question could not be sent.';
+      } finally {
+        state.supportSending = false;
+        render();
+        var nextField = document.querySelector('#support-form textarea');
+        if (nextField) nextField.focus();
+      }
+    });
+  }
+
   function statusLabel(value) {
     return String(value || 'pending')
       .replace(/[_-]+/g, ' ')
@@ -1157,6 +1315,7 @@
   function currentBody() {
     if (state.view === 'account') return renderAccountPage();
     if (state.view === 'track') return renderTrackPage();
+    if (state.view === 'support') return renderSupportPage();
     if (state.orderResult) return renderOrderResultPage();
     if (state.selectedProduct) return renderProductPage(state.selectedProduct);
     return renderCatalogBody();
@@ -1186,6 +1345,7 @@
   }
 
   function setView(view, historyMode) {
+    stopSupportPolling();
     state.view = view || 'catalog';
     state.selectedProduct = null;
     state.orderResult = null;
@@ -1203,6 +1363,11 @@
     }
     syncHistory(historyMode);
     render();
+    if (state.view === 'support') {
+      void loadSupportMessages(true);
+      startSupportPolling();
+      void trackMiniappEvent('support_open');
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -1276,6 +1441,7 @@
     bindDetailEvents();
     bindOrderEvents();
     bindAccountEvents();
+    bindSupportEvents();
     bindImageViewerEvents();
     bindShareEvents();
     bindImageFallbacks();
@@ -2048,6 +2214,10 @@
       state.navigationReady = true;
       history.replaceState({ sprintSales: true }, '', storefrontUrl());
       render();
+      if (state.view === 'support') {
+        void loadSupportMessages(true);
+        startSupportPolling();
+      }
     } catch (error) {
       fail(error.message);
     }
@@ -2055,8 +2225,13 @@
 
   window.addEventListener('popstate', function () {
     if (!state.shop) return;
+    stopSupportPolling();
     applyLocationState();
     render();
+    if (state.view === 'support') {
+      void loadSupportMessages(true);
+      startSupportPolling();
+    }
     window.scrollTo({ top: 0, behavior: 'auto' });
   });
 
