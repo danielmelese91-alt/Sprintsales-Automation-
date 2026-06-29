@@ -878,6 +878,7 @@ function refreshSpecChips(){
   var groups=activeSpecGroupsProfile();
   panel.innerHTML=specGroupsPanelHtml(groups,null,null,current);
   syncLegacySpecFields();
+  refreshColorImagesPanel();
 }
 function toggleSpecValue(id,value){
   var values=csvValues((document.getElementById(id)||{}).value);
@@ -1218,6 +1219,7 @@ async function deletePostDraft(postId){
 function showProductForm(editId){
   var container=document.getElementById('product-form-container');
   var p=editId?(appState.products||[]).find(function(pr){return pr.id===editId}):null;
+  if(container&&container.dataset)container.dataset.editProductId=p?p.id:'';
   var draft=!editId?restoreProductDraft():null;
   var cats=getCategories();
   if(cats.length===0){showToast('Add product categories first in the Categories tab.','info');return}
@@ -1275,6 +1277,8 @@ function showProductForm(editId){
   specGroupsPanelHtml(specGroups,p,draft,{})+
   '</div>'+
 
+  '<div id="color-images-panel">'+colorImagesPanelHtml(p)+'</div>'+
+
   '<div class="rounded-lg border border-slate-700 p-3"><p class="text-sm font-semibold text-white mb-2"><i class="fas fa-tag text-sprint-400 mr-2"></i>Discount eligibility</p><div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-slate-300">'+
   '<label class="flex items-center gap-2"><input id="prod-disc-new" type="checkbox" '+((!p||(p.discounts||{}).newBuyer!==false)?'checked':'')+'> New buyer discount can apply</label>'+
   '<label class="flex items-center gap-2"><input id="prod-disc-repeat" type="checkbox" '+((!p||(p.discounts||{}).repeatBuyer!==false)?'checked':'')+'> Loyal buyer discount can apply</label>'+
@@ -1323,19 +1327,97 @@ function cakeProductPaymentPanel(p,draft){
 }
 
 function previewProductImage(){
-  var files=[0,1,2,3,4].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?input.files[0]:null}).filter(Boolean);
   var wrap=document.getElementById('prod-image-previews');
   if(!wrap)return;
   wrap.innerHTML='';
-  files.forEach(function(file,idx){
+  var selected=[0,1,2,3,4].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?{slot:i,file:input.files[0]}:null}).filter(Boolean);
+  if(!selected.length){
+    var form=document.getElementById('product-form-container');
+    var productId=form&&form.dataset?form.dataset.editProductId:'';
+    var p=productId?(appState.products||[]).find(function(item){return item.id===productId}):null;
+    wrap.innerHTML=productGalleryPreviewHtml(p);
+    return;
+  }
+  selected.forEach(function(item,idx){
     var box=document.createElement('div');
     box.className='relative';
-    box.innerHTML='<div class="h-24 rounded bg-slate-800 animate-pulse"></div><p class="text-[10px] text-slate-500 mt-1">Image '+(idx+1)+'</p>';
+    box.innerHTML='<div class="h-24 rounded bg-slate-800 animate-pulse"></div><p class="text-[10px] text-slate-500 mt-1">Image '+(item.slot+1)+'</p>';
     wrap.appendChild(box);
     var reader=new FileReader();
-    reader.onload=function(e){box.innerHTML='<img class="rounded h-24 w-full object-cover bg-slate-800 p-1" src="'+e.target.result+'"><p class="text-[10px] text-slate-500 mt-1">Image '+(idx+1)+'</p>'};
-    reader.readAsDataURL(file);
+    reader.onload=function(e){box.innerHTML='<img class="rounded h-24 w-full object-cover bg-slate-800 p-1" src="'+e.target.result+'"><button type="button" onclick="clearProductImageInput('+item.slot+')" class="preview-remove-btn" title="Remove selected image"><i class="fas fa-times text-xs"></i></button><p class="text-[10px] text-slate-500 mt-1">Image '+(item.slot+1)+'</p>'};
+    reader.readAsDataURL(item.file);
   });
+}
+function clearProductImageInput(slot){
+  var input=document.getElementById('prod-image-file-'+slot);
+  if(input)input.value='';
+  previewProductImage();
+}
+
+function productColorImageUrl(record){
+  if(!record)return'';
+  if(typeof record==='string')return record;
+  return productImageUrlFromPath({},record.publicUrl||record.publicPath||record.watermarkedUrl||record.watermarkedPath||record.imageUrl||record.url||record.imagePath||'');
+}
+function colorImageRecordForProduct(p,color){
+  var list=Array.isArray(p&&p.colorImages)?p.colorImages:[];
+  return list.find(function(record){return String(record&&record.color||'').toLowerCase()===String(color||'').toLowerCase()})||null;
+}
+function selectedProductColors(){
+  syncLegacySpecFields();
+  return csvValues((document.getElementById('prod-colors')||{}).value);
+}
+function colorImagesPanelHtml(p){
+  var colors=selectedProductColors();
+  if(!colors.length){
+    return '<div class="rounded-lg border border-dashed border-slate-700 p-3 text-xs text-slate-500"><i class="fas fa-palette mr-1"></i>Select product colors above to add Shopify-style color photos.</div>';
+  }
+  return '<div class="rounded-xl border border-slate-700 bg-slate-900/35 p-3">'+
+    '<div class="flex items-start justify-between gap-3 mb-3"><div><p class="text-sm font-semibold text-white"><i class="fas fa-palette text-sprint-400 mr-2"></i>Color photos</p><p class="text-xs text-slate-500">Optional: upload one photo for each color so shoppers can tap the color and see that exact version.</p></div><span class="text-[11px] text-slate-500">1 per color</span></div>'+
+    '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">'+colors.map(function(color,index){
+      var record=colorImageRecordForProduct(p,color);
+      var url=productColorImageUrl(record);
+      var inputId='prod-color-image-'+index;
+      return '<label class="color-image-slot" data-color-image-slot="'+esc(color)+'">'+
+        '<input type="file" class="hidden" id="'+inputId+'" data-color-image="'+esc(color)+'" accept="image/*" onchange="previewColorImage(\''+inputId+'\')">'+
+        '<span class="color-image-preview">'+(url?'<img src="'+esc(url)+'" alt="'+esc(color)+' product photo">'+(p&&p.id?'<button type="button" onclick="deleteColorImage(event,\''+esc(p.id)+'\',\''+jsQuote(color)+'\')" class="preview-remove-btn" title="Remove saved color photo"><i class="fas fa-times text-xs"></i></button>':''):'<i class="fas fa-image"></i>')+'</span>'+
+        '<span class="color-image-meta"><b>'+esc(color)+'</b><small>'+(url?'Replace photo':'Add photo')+'</small></span>'+
+      '</label>';
+    }).join('')+'</div></div>';
+}
+function refreshColorImagesPanel(){
+  var panel=document.getElementById('color-images-panel');
+  if(!panel)return;
+  var form=document.getElementById('product-form-container');
+  var productId=form&&form.dataset?form.dataset.editProductId:'';
+  var p=productId?(appState.products||[]).find(function(item){return item.id===productId}):null;
+  panel.innerHTML=colorImagesPanelHtml(p);
+}
+function previewColorImage(inputId){
+  var input=document.getElementById(inputId);
+  if(!input||!input.files||!input.files[0])return;
+  var slot=input.closest('[data-color-image-slot]');
+  var preview=slot&&slot.querySelector('.color-image-preview');
+  if(!preview)return;
+  var reader=new FileReader();
+  reader.onload=function(e){preview.innerHTML='<img src="'+e.target.result+'" alt=""><button type="button" onclick="clearColorImageInput(event,\''+inputId+'\')" class="preview-remove-btn" title="Remove selected color photo"><i class="fas fa-times text-xs"></i></button>';};
+  reader.readAsDataURL(input.files[0]);
+}
+function clearColorImageInput(event,inputId){
+  if(event){event.preventDefault();event.stopPropagation();}
+  var input=document.getElementById(inputId);
+  if(input)input.value='';
+  refreshColorImagesPanel();
+}
+async function deleteColorImage(event,productId,color){
+  if(event){event.preventDefault();event.stopPropagation();}
+  if(!await confirmNice('Remove color photo?','This removes only the saved photo for '+color+'. The color option stays on the product.',{icon:'image',okText:'Remove photo'}))return;
+  try{
+    await apiFetch('/api/client/products/'+encodeURIComponent(productId)+'/color-images/'+encodeURIComponent(color),{method:'DELETE'});
+    await initDashboard();
+    refreshColorImagesPanel();
+    showToast('Color photo removed.','success');
+  }catch(error){showToast(error.message,'error')}
 }
 
 // â”€â”€ Save Product (FormData for image upload) â”€â”€
@@ -1398,6 +1480,15 @@ async function saveProduct(id){
 
   var imgFiles=[0,1,2,3,4].map(function(i){var input=document.getElementById('prod-image-file-'+i);return input&&input.files&&input.files[0]?input.files[0]:null}).filter(Boolean).slice(0,5);
   imgFiles.forEach(function(file){fd.append('images',file)});
+
+  var colorImageColors=[];
+  Array.prototype.forEach.call(document.querySelectorAll('[data-color-image]'),function(input){
+    if(input.files&&input.files[0]){
+      colorImageColors.push(input.getAttribute('data-color-image')||'');
+      fd.append('colorImages',input.files[0]);
+    }
+  });
+  if(colorImageColors.length)fd.append('colorImageColors',JSON.stringify(colorImageColors));
 
   if(!fd.get('code')&&$('prod-code')){
     generateProductCode();

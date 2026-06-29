@@ -351,6 +351,15 @@
   .image-slot-box:hover{background:#eff6ff;border-color:var(--ss-blue);color:var(--ss-navy);transform:translateY(-1px)}
   .image-slot-box strong{font-size:.78rem}
   .image-slot-box small{font-size:.68rem;color:#7b8ba0}
+  .color-image-slot{display:grid;grid-template-columns:76px minmax(0,1fr);gap:.75rem;align-items:center;border:1px solid #cbd9ea;background:#fff;border-radius:16px;padding:.55rem;cursor:pointer;transition:all .14s}
+  .color-image-slot:hover{border-color:var(--ss-blue);box-shadow:0 10px 22px rgba(7,31,63,.08);transform:translateY(-1px)}
+  .color-image-preview{height:72px;border-radius:13px;background:#f1f5f9;border:1px dashed #cbd9ea;display:flex;align-items:center;justify-content:center;color:#64748b;overflow:hidden;position:relative}
+  .color-image-preview img{width:100%;height:100%;object-fit:cover;display:block}
+  .color-image-meta{display:flex;flex-direction:column;gap:.18rem;min-width:0}
+  .color-image-meta b{color:var(--ss-navy);font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .color-image-meta small{color:#64748b;font-size:.72rem}
+  .preview-remove-btn{position:absolute;top:.35rem;right:.35rem;width:1.65rem;height:1.65rem;border-radius:999px;background:rgba(255,255,255,.96);border:1px solid #fecaca;color:#dc2626;display:grid;place-items:center;box-shadow:0 8px 18px rgba(15,23,42,.15);z-index:5}
+  .preview-remove-btn:hover{background:#fef2f2;border-color:#f87171}
   .badge-active{background:#e8f7ef!important;color:#166534!important;border-color:#b7ebc9!important}
   .badge-pending{background:#fff7ed!important;color:#9a3412!important;border-color:#fed7aa!important}
   .badge-rejected{background:#fef2f2!important;color:#991b1b!important;border-color:#fecaca!important}

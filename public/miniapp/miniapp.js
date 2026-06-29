@@ -13,6 +13,7 @@
     query: '',
     selectedProduct: null,
     selectedImage: 0,
+    selectedColor: '',
     orderResult: null,
     paymentProofResult: null,
     view: 'catalog',
@@ -130,6 +131,7 @@
     var product = productFromLocation();
     state.selectedProduct = product;
     state.selectedImage = 0;
+    state.selectedColor = '';
     state.orderResult = null;
     state.paymentProofResult = null;
     state.trackError = '';
@@ -148,6 +150,7 @@
   function openProduct(product, mode) {
     state.selectedProduct = product || null;
     state.selectedImage = 0;
+    state.selectedColor = '';
     state.orderResult = null;
     state.paymentProofResult = null;
     state.view = 'catalog';
@@ -330,6 +333,35 @@
       values = (product.sizes || []).filter(looksLikeLegacySize);
     }
     return uniqueFilterValues(values);
+  }
+
+  function productColorImages(product) {
+    return (product && Array.isArray(product.colorImages) ? product.colorImages : [])
+      .map(function (item) {
+        return {
+          color: String(item && item.color || '').trim(),
+          image: String(item && item.image || item.url || '').trim()
+        };
+      })
+      .filter(function (item) { return item.color && item.image; });
+  }
+
+  function colorImageFor(product, color) {
+    var needle = String(color || '').trim().toLowerCase();
+    return productColorImages(product).find(function (item) {
+      return item.color.toLowerCase() === needle;
+    }) || null;
+  }
+
+  function defaultColorImageFor(product) {
+    var variants = productColorImages(product);
+    if (!variants.length) return null;
+    var groups = product && Array.isArray(product.specGroups) ? product.specGroups : [];
+    var colorGroup = groups.find(function (group) {
+      return String(group.field || '').toLowerCase() === 'color' || /colou?r/i.test([group.key, group.label].join(' '));
+    });
+    var values = colorGroup && Array.isArray(colorGroup.values) ? colorGroup.values : [];
+    return (values.length ? colorImageFor(product, values[0]) : null) || variants[0] || null;
   }
 
   function catalogProductsBeforeOptionFilters() {
@@ -982,15 +1014,25 @@
     '</main>';
   }
 
-  function optionGroupHtml(group) {
+  function optionGroupHtml(group, product) {
     var values = group.values || [];
     if (!values.length) return '';
+    var isColorGroup = String(group.field || '').toLowerCase() === 'color' || /colou?r/i.test([group.key, group.label].join(' '));
     if (values.length === 1) {
+      var singleColorImage = isColorGroup ? colorImageFor(product, values[0]) : null;
+      if (singleColorImage) {
+        return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="option-row color-single-row"><button type="button" class="single-option color-single-photo active" data-color-preview="' + esc(values[0]) + '" aria-label="Preview ' + esc(values[0]) + ' color"><img src="' + esc(singleColorImage.image) + '" alt="' + esc(values[0]) + ' color"><span class="sr-only">' + esc(values[0]) + '</span></button><div class="single-option">' + esc(values[0]) + '</div></div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
+      }
       return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="single-option">' + esc(values[0]) + '</div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
     }
     return '<div class="option-group"><label>' + esc(group.label) + '</label><div class="option-row">' + values.map(function (value, index) {
       var id = 'spec-' + group.key + '-' + index;
-      return '<label class="option-pill" for="' + esc(id) + '"><input id="' + esc(id) + '" type="radio" name="spec-' + esc(group.key) + '" value="' + esc(value) + '" required><span>' + esc(value) + '</span></label>';
+      var checked = isColorGroup && state.selectedColor && String(value).toLowerCase() === state.selectedColor.toLowerCase();
+      var colorImage = isColorGroup ? colorImageFor(product, value) : null;
+      var optionContent = colorImage
+        ? '<img src="' + esc(colorImage.image) + '" alt="' + esc(value) + ' color"><span class="sr-only">' + esc(value) + '</span>'
+        : esc(value);
+      return '<label class="option-pill ' + (colorImage ? 'color-photo-option' : '') + '" for="' + esc(id) + '"><input id="' + esc(id) + '" type="radio" name="spec-' + esc(group.key) + '" value="' + esc(value) + '" required' + (isColorGroup ? ' data-color-option="' + esc(value) + '"' : '') + (checked ? ' checked' : '') + '><span>' + optionContent + '</span></label>';
     }).join('') + '</div></div>';
   }
 
@@ -1009,7 +1051,9 @@
   function renderProductPage(product) {
     if (!product) return '';
     var images = product.images || [];
-    var activeImage = images[state.selectedImage] || images[0] || '';
+    var selectedColorImage = state.selectedColor ? colorImageFor(product, state.selectedColor) : null;
+    var defaultColorImage = selectedColorImage ? null : defaultColorImageFor(product);
+    var activeImage = selectedColorImage?.image || defaultColorImage?.image || images[state.selectedImage] || images[0] || '';
     var specGroups = product.specGroups || [];
     var discount = percentOff(product);
     var telegram = botUrl(product);
@@ -1042,7 +1086,7 @@
           '<div class="order-card-title"><h3>Order this item</h3><p>Your saved account details are filled automatically.</p></div>' +
           '<form id="miniapp-order-form" class="checkout-form">' +
             '<div id="order-form-alert" class="form-alert" hidden></div>' +
-            specGroups.map(optionGroupHtml).join('') +
+            specGroups.map(function (group) { return optionGroupHtml(group, product); }).join('') +
             cakeFields +
             '<div class="form-grid two"><label>Quantity' + quantityControlHtml() + '</label><label>Phone number<input name="phone" inputmode="tel" value="' + accountValue('phone') + '" placeholder="09..." required></label></div>' +
             '<label>Full name<input name="customerName" value="' + accountValue('fullName') + '" placeholder="Your full name" required></label>' +
@@ -1180,12 +1224,35 @@
         '<div><b>How can I help?</b><p>Ask about an item, price, delivery, payment, discount, or the shop. I will check the shop information first. If I am not sure, the shop team can reply here.</p></div>' +
       '</div>';
     }
+    function supportProductCards(message) {
+      var products = Array.isArray(message.products) ? message.products : [];
+      if (!products.length) return '';
+      return '<div class="support-products">' + products.map(function (product) {
+        var image = product.images && product.images[0] ? '<img src="' + esc(product.images[0]) + '" alt="' + esc(product.name || 'Product') + '">' : '<span class="support-product-fallback">' + esc(initials(product.name || state.shop && state.shop.businessName || 'Shop')) + '</span>';
+        var facts = []
+          .concat((product.colors || []).slice(0, 2))
+          .concat((product.sizes || []).slice(0, 2))
+          .slice(0, 3)
+          .map(function (value) { return '<span>' + esc(value) + '</span>'; })
+          .join('');
+        return '<button class="support-product-card" type="button" data-support-product-id="' + esc(String(product.id || '')) + '">' +
+          '<span class="support-product-image">' + image + '</span>' +
+          '<span class="support-product-copy">' +
+            '<b>' + esc(product.name || 'Product') + '</b>' +
+            '<small>' + esc(money(product.price)) + '</small>' +
+            (facts ? '<span class="support-product-facts">' + facts + '</span>' : '') +
+            '<em>View and order</em>' +
+          '</span>' +
+        '</button>';
+      }).join('') + '</div>';
+    }
     return state.supportMessages.map(function (message) {
       var customer = message.direction === 'inbound';
       var teamReply = message.source === 'owner-support-reply';
       return '<article class="support-message ' + (customer ? 'from-shopper' : 'from-shop') + '">' +
         '<small>' + (customer ? 'You' : (teamReply ? 'Shop team' : (state.shop.businessName || 'Shop assistant'))) + '</small>' +
         '<p>' + esc(message.text || '') + '</p>' +
+        (!customer ? supportProductCards(message) : '') +
         (message.createdAt ? '<time>' + esc(new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })) + '</time>' : '') +
       '</article>';
     }).join('');
@@ -1219,6 +1286,7 @@
     }
     var headingStatus = document.querySelector('.support-heading > em');
     if (headingStatus) headingStatus.textContent = state.supportWaitingForTeam ? 'Waiting for shop reply' : 'Online help';
+    bindSupportProductEvents();
   }
 
   async function loadSupportMessages(renderAfter) {
@@ -1303,6 +1371,18 @@
         var nextField = document.querySelector('#support-form textarea');
         if (nextField) nextField.focus();
       }
+    });
+  }
+
+  function bindSupportProductEvents() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-support-product-id]'), function (button) {
+      if (button.dataset.bound) return;
+      button.dataset.bound = '1';
+      button.addEventListener('click', function () {
+        var id = button.getAttribute('data-support-product-id');
+        var product = state.products.find(function (item) { return String(item.id) === String(id); }) || null;
+        if (product) openProduct(product);
+      });
     });
   }
 
@@ -1442,6 +1522,7 @@
     bindOrderEvents();
     bindAccountEvents();
     bindSupportEvents();
+    bindSupportProductEvents();
     bindImageViewerEvents();
     bindShareEvents();
     bindImageFallbacks();
@@ -1780,6 +1861,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-thumb]'), function (button) {
       button.addEventListener('click', function () {
         state.selectedImage = Number(button.getAttribute('data-thumb') || 0);
+        state.selectedColor = '';
         render();
       });
     });
@@ -1789,6 +1871,41 @@
     var form = document.getElementById('miniapp-order-form');
     if (form) {
       form.addEventListener('submit', submitOrder);
+      function applyColorPreview(color) {
+        var cleanColor = color || '';
+        var colorImage = colorImageFor(state.selectedProduct, cleanColor);
+        if (!colorImage) return;
+        state.selectedColor = cleanColor;
+        state.selectedImage = 0;
+        var detailButton = document.querySelector('.detail-image-button');
+        var detailImage = document.querySelector('.detail-image');
+        if (detailImage) {
+          detailImage.src = colorImage.image;
+          detailImage.alt = (state.selectedProduct && state.selectedProduct.name ? state.selectedProduct.name : 'Product') + ' - ' + cleanColor;
+        }
+        if (detailButton) detailButton.setAttribute('data-open-image', colorImage.image);
+        Array.prototype.forEach.call(form.querySelectorAll('[data-color-option]'), function (input) {
+          var active = String(input.value || '').toLowerCase() === String(cleanColor).toLowerCase();
+          input.checked = active;
+          var pill = input.closest('.option-pill');
+          if (pill) pill.classList.toggle('active', active);
+        });
+        Array.prototype.forEach.call(form.querySelectorAll('[data-color-preview]'), function (button) {
+          var active = String(button.getAttribute('data-color-preview') || '').toLowerCase() === String(cleanColor).toLowerCase();
+          button.classList.toggle('active', active);
+        });
+      }
+      Array.prototype.forEach.call(form.querySelectorAll('[data-color-option]'), function (input) {
+        input.addEventListener('change', function () {
+          if (!input.checked) return;
+          applyColorPreview(input.getAttribute('data-color-option') || input.value || '');
+        });
+      });
+      Array.prototype.forEach.call(form.querySelectorAll('[data-color-preview]'), function (button) {
+        button.addEventListener('click', function () {
+          applyColorPreview(button.getAttribute('data-color-preview') || '');
+        });
+      });
       bindQuantityControls(form);
       updateMiniSubtotal(form);
       bindMissingFieldCleanup(form);

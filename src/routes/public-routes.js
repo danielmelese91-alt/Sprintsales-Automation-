@@ -449,8 +449,22 @@ export function createPublicRoutes(deps) {
 
   const productOriginalImagePath = product => productImageRecords(product)[0]?.originalPath || product.imageOriginalPath || product.originalImagePath || product.imagePath || '';
 
+  const productColorImageRecords = product => (Array.isArray(product?.colorImages) ? product.colorImages : [])
+    .map(item => {
+      if (!item || typeof item !== 'object') return null;
+      return {
+        ...item,
+        color: String(item.color || '').trim(),
+        originalPath: item.originalPath || item.imageOriginalPath || item.originalImagePath || '',
+        watermarkedPath: item.watermarkedPath || item.watermarkedImagePath || '',
+        publicPath: item.publicPath || item.publicImagePath || item.watermarkedPath || item.imagePath || ''
+      };
+    })
+    .filter(item => item?.color && (item.originalPath || item.publicPath));
+
   const productImagePaths = product => [...new Set([
     ...productImageRecords(product).flatMap(image => [image.originalPath, image.watermarkedPath, image.publicPath]),
+    ...productColorImageRecords(product).flatMap(image => [image.originalPath, image.watermarkedPath, image.publicPath]),
     product.imageOriginalPath,
     product.originalImagePath,
     product.watermarkedImagePath,
@@ -590,6 +604,14 @@ export function createPublicRoutes(deps) {
     ...(req.files?.images || []),
     ...(req.file ? [req.file] : [])
   ].filter(Boolean).slice(0, 5);
+
+  const uploadedColorImageFiles = req => (req.files?.colorImages || []).filter(Boolean).slice(0, 20);
+
+  const productUploadFields = [
+    { name: 'image', maxCount: 5 },
+    { name: 'images', maxCount: 8 },
+    { name: 'colorImages', maxCount: 20 }
+  ];
 
   const booleanField = (value, fallback = false) => {
     if (value === undefined) return fallback;
@@ -747,6 +769,73 @@ export function createPublicRoutes(deps) {
       bottomLogoPath: cakeProduct ? '' : watermarkLogoPathForProduct(client, product),
       createdAt: now()
     };
+    return product;
+  };
+
+  const colorImageColorsFromBody = body => {
+    let raw = body?.colorImageColors || [];
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch (_error) {
+        raw = raw.split(/[,|;\n]+/);
+      }
+    }
+    if (!Array.isArray(raw)) raw = [raw];
+    return raw.map(value => String(value || '').trim()).filter(Boolean).slice(0, 20);
+  };
+
+  const applyColorImagePipeline = async ({ client, product, files, colors }) => {
+    const imageFiles = (files || []).filter(Boolean).slice(0, 20);
+    const selectedColors = csvValues(product.colors || '').map(value => value.toLowerCase());
+    const currentRecords = productColorImageRecords(product);
+    const existing = currentRecords.filter(record =>
+      !selectedColors.length || selectedColors.includes(String(record.color || '').toLowerCase())
+    );
+    const removed = currentRecords.filter(record => !existing.includes(record));
+    for (const record of removed) await unlinkProductImageRecord(client.id, record);
+    if (!imageFiles.length) {
+      product.colorImages = existing;
+      return product;
+    }
+    const records = existing.slice();
+    const cakeProduct = isCakeProduct(client, product);
+    for (let index = 0; index < imageFiles.length; index += 1) {
+      const currentFile = imageFiles[index];
+      const color = String(colors?.[index] || '').trim();
+      if (!color) {
+        await cleanupUploadedFiles([currentFile]);
+        continue;
+      }
+      const replaced = records.find(record => String(record.color || '').toLowerCase() === color.toLowerCase());
+      if (replaced) await unlinkProductImageRecord(client.id, replaced);
+      const originalPath = currentFile.path;
+      let watermarkedPath = '';
+      let publicPath = originalPath;
+      if (!cakeProduct) {
+        watermarkedPath = watermarkedPathForOriginal(originalPath);
+        await createWatermarkedProductImage({
+          inputPath: originalPath,
+          outputPath: watermarkedPath,
+          centerText: watermarkCenterText(client),
+          bottomText: watermarkBottomTextForProduct(client, product),
+          bottomLogoPath: watermarkLogoPathForProduct(client, product)
+        });
+        publicPath = watermarkedPath;
+      }
+      const nextRecord = {
+        color,
+        originalPath,
+        watermarkedPath,
+        publicPath,
+        originalName: currentFile.originalname || '',
+        createdAt: now()
+      };
+      const existingIndex = records.findIndex(record => String(record.color || '').toLowerCase() === color.toLowerCase());
+      if (existingIndex >= 0) records[existingIndex] = nextRecord;
+      else records.push(nextRecord);
+    }
+    product.colorImages = records.slice(0, 20);
     return product;
   };
 
@@ -2356,22 +2445,24 @@ export function createPublicRoutes(deps) {
     res.json({ counts: audience.counts, eligible: audience.eligible.slice(0, 50) });
   });
   
-  router.post('/api/client/products', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields([{ name: 'image', maxCount: 5 }, { name: 'images', maxCount: 8 }]), async (req, res) => {
+  router.post('/api/client/products', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields(productUploadFields), async (req, res) => {
     try {
       const uploadedFiles = uploadedProductFiles(req);
+      const colorImageFiles = uploadedColorImageFiles(req);
+      const allUploadFiles = [...uploadedFiles, ...colorImageFiles];
       const client = clientFor(req.data, req.user.clientId);
       if (!isProductBusiness(client)) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Product catalog is available only for product-selling businesses. Service businesses should describe services in Settings.' });
       }
       const products = req.data.products || [];
       const clientProducts = products.filter(product => product.clientId === req.user.clientId);
       if (clientProducts.length >= quotas.maxProductsPerClient) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: `Product limit reached. Each client can add up to ${quotas.maxProductsPerClient} products.` });
       }
       const currentProductImageBytes = await directorySize(path.join(productImageDir, req.user.clientId));
-      const incomingImageBytes = uploadedFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+      const incomingImageBytes = allUploadFiles.reduce((sum, file) => sum + (file.size || 0), 0);
       const existingProductImageBytes = Math.max(0, currentProductImageBytes - incomingImageBytes);
       const estimatedStoredImageBytes = incomingImageBytes ? incomingImageBytes * 2 : 0;
       if (existingProductImageBytes + estimatedStoredImageBytes > quotas.maxProductImageStorageMbPerClient * MB) {
@@ -2385,28 +2476,28 @@ export function createPublicRoutes(deps) {
         subcategory: req.body.subcategory
       }));
       if (!code || !name) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Product name is required.' });
       }
       if (clientProducts.some(product => product.code.toUpperCase() === code)) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(409).json({ error: 'That product code already exists.' });
       }
       const price = String(req.body.price || '').trim();
       if (!price || Number.isNaN(Number(price)) || Number(price) < 0) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Product price must be a valid positive number.' });
       }
       const category = String(req.body.category || '').trim();
       if (!category) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Please choose a product category before saving.' });
       }
       // Validate category exists in client's allowed categories
       const clientSettings = client?.settings || {};
       const validCategories = clientSettings.categories || [];
       if (category && validCategories.length > 0 && !validCategories.includes(category)) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: `Category "${category}" does not exist in your category list. Add it first in Settings.`, validCategories });
       }
       const productStatus = productStatusFromBody(req.body);
@@ -2441,6 +2532,7 @@ export function createPublicRoutes(deps) {
         notes: String(req.body.notes || ''),
         imagePath: '',
         images: [],
+        colorImages: [],
         imageOriginalPath: '',
         originalImagePath: '',
         watermarkedImagePath: '',
@@ -2471,6 +2563,13 @@ export function createPublicRoutes(deps) {
           await cleanupUploadedFiles(uploadedFiles);
           return res.status(500).json({ error: 'Product image processing failed. Please try another image.' });
         }
+      }
+      try {
+        await applyColorImagePipeline({ client, product, files: colorImageFiles, colors: colorImageColorsFromBody(req.body) });
+      } catch (imgErr) {
+        console.error(`Product color image pipeline failed: ${imgErr.message}`);
+        await cleanupUploadedFiles(colorImageFiles);
+        return res.status(500).json({ error: 'Product color image processing failed. Please try another image.' });
       }
       if (!product.category) {
         await cleanupUploadedFiles(productImagePaths(product).map(imagePath => ({ path: imagePath })));
@@ -2517,7 +2616,7 @@ export function createPublicRoutes(deps) {
       res.json({ product });
     } catch (error) {
       console.error('Product create error:', error);
-      await cleanupUploadedFiles(uploadedProductFiles(req));
+      await cleanupUploadedFiles([...uploadedProductFiles(req), ...uploadedColorImageFiles(req)]);
       res.status(500).json({ error: 'Failed to save product. Please try again.' });
     }
   });
@@ -2641,13 +2740,36 @@ export function createPublicRoutes(deps) {
     await writeData(req.data);
     res.json({ ok: true, product });
   });
+
+  router.delete('/api/client/products/:id/color-images/:color', requireAuth('client'), requireActiveClient(), requireProductBusiness, async (req, res) => {
+    const product = (req.data.products || []).find(item => item.id === req.params.id && item.clientId === req.user.clientId);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    const color = decodeURIComponent(String(req.params.color || '')).trim().toLowerCase();
+    const records = productColorImageRecords(product);
+    const removed = records.find(record => String(record.color || '').toLowerCase() === color);
+    if (!removed) return res.status(404).json({ error: 'Color image not found.' });
+    product.colorImages = records.filter(record => String(record.color || '').toLowerCase() !== color);
+    product.updatedAt = now();
+    await unlinkProductImageRecord(req.user.clientId, removed);
+    addAuditLog(req.data, {
+      user: req.user,
+      action: 'product.color_image.deleted',
+      clientId: req.user.clientId,
+      target: `${product.code} ${product.name}`,
+      details: `Client removed ${removed.color} color image from product ${product.code}.`
+    });
+    await writeData(req.data);
+    res.json({ ok: true, product });
+  });
   
-  router.put('/api/client/products/:id', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields([{ name: 'image', maxCount: 5 }, { name: 'images', maxCount: 8 }]), async (req, res) => {
+  router.put('/api/client/products/:id', requireAuth('client'), requireActiveClient(), requireProductBusiness, productUpload.fields(productUploadFields), async (req, res) => {
     try {
       const uploadedFiles = uploadedProductFiles(req);
+      const colorImageFiles = uploadedColorImageFiles(req);
+      const allUploadFiles = [...uploadedFiles, ...colorImageFiles];
       const product = (req.data.products || []).find(item => item.id === req.params.id && item.clientId === req.user.clientId);
       if (!product) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(404).json({ error: 'Product not found' });
       }
       const name = String(req.body.name || '').trim();
@@ -2657,7 +2779,7 @@ export function createPublicRoutes(deps) {
         subcategory: req.body.subcategory || product.subcategory
       }));
       if (!code || !name) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Product name is required.' });
       }
       const duplicate = (req.data.products || []).find(item =>
@@ -2666,29 +2788,29 @@ export function createPublicRoutes(deps) {
         String(item.code || '').toUpperCase() === code
       );
       if (duplicate) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(409).json({ error: 'That product code already exists.' });
       }
       const price = String(req.body.price || '').trim();
       if (!price) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Product price is required.' });
       }
       const category = String(req.body.category || '').trim();
       if (!category) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Please choose a product category before saving.' });
       }
       const client = clientFor(req.data, req.user.clientId);
       const validCategories = client?.settings?.categories || [];
       if (category && validCategories.length > 0 && !validCategories.includes(category)) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: `Category "${category}" does not exist in your category list. Add it first in Settings.`, validCategories });
       }
       const oldImagePaths = productImagePaths(product);
-      if (uploadedFiles.length) {
-        if (productImageRecords(product).length >= 5) {
-          await cleanupUploadedFiles(uploadedFiles);
+      if (allUploadFiles.length) {
+        if (uploadedFiles.length && productImageRecords(product).length >= 5) {
+          await cleanupUploadedFiles(allUploadFiles);
           return res.status(400).json({ error: 'This product already has 5 images. Remove an old image before adding another one.' });
         }
         const currentProductImageBytes = await directorySize(path.join(productImageDir, req.user.clientId));
@@ -2696,10 +2818,10 @@ export function createPublicRoutes(deps) {
         for (const imagePath of oldImagePaths) {
           previousImageBytes += (await fs.stat(imagePath).catch(() => null))?.size || 0;
         }
-        const incomingImageBytes = uploadedFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+        const incomingImageBytes = allUploadFiles.reduce((sum, file) => sum + (file.size || 0), 0);
         const existingProductImageBytes = Math.max(0, currentProductImageBytes - previousImageBytes - incomingImageBytes);
         if (existingProductImageBytes + (incomingImageBytes * 2) > quotas.maxProductImageStorageMbPerClient * MB) {
-          await cleanupUploadedFiles(uploadedFiles);
+          await cleanupUploadedFiles(allUploadFiles);
           return res.status(400).json({ error: `Product image storage limit reached. Each client can use up to ${quotas.maxProductImageStorageMbPerClient} MB for product images.` });
         }
       }
@@ -2752,8 +2874,15 @@ export function createPublicRoutes(deps) {
           return res.status(500).json({ error: 'Product image processing failed. Please try another image.' });
         }
       }
+      try {
+        await applyColorImagePipeline({ client, product, files: colorImageFiles, colors: colorImageColorsFromBody(req.body) });
+      } catch (imgErr) {
+        console.error(`Product color image pipeline failed: ${imgErr.message}`);
+        await cleanupUploadedFiles(colorImageFiles);
+        return res.status(500).json({ error: 'Product color image processing failed. Please try another image.' });
+      }
       if (!product.category) {
-        await cleanupUploadedFiles(uploadedFiles);
+        await cleanupUploadedFiles(allUploadFiles);
         return res.status(400).json({ error: 'Please choose a product category before saving.' });
       }
       if (!uploadedFiles.length && productOriginalImagePath(product)) {
@@ -2816,7 +2945,7 @@ export function createPublicRoutes(deps) {
       res.json({ product });
     } catch (error) {
       console.error('Product update error:', error);
-      await cleanupUploadedFiles(uploadedProductFiles(req));
+      await cleanupUploadedFiles([...uploadedProductFiles(req), ...uploadedColorImageFiles(req)]);
       res.status(500).json({ error: 'Failed to update product. Please try again.' });
     }
   });

@@ -302,6 +302,23 @@ const imageRecords = product => {
   return publicPath ? [{ publicPath, watermarkedPath: product?.watermarkedImagePath || publicPath, isPrimary: true }] : [];
 };
 
+const colorImageRecords = product => {
+  const records = Array.isArray(product?.colorImages) ? product.colorImages : [];
+  return records
+    .map(item => {
+      if (!item || typeof item !== 'object') return null;
+      const color = String(item.color || item.name || '').trim();
+      const publicPath = item.publicPath || item.publicImagePath || item.watermarkedPath || item.watermarkedImagePath || item.imagePath || item.imageUrl || item.url || '';
+      if (!color || !publicPath) return null;
+      return {
+        color,
+        image: imageUrlForPath(product.clientId, publicPath)
+      };
+    })
+    .filter(item => item?.color && item?.image)
+    .slice(0, 20);
+};
+
 const normalizedSpecGroups = product => {
   const groups = [];
   const seen = new Set();
@@ -380,7 +397,8 @@ const serializeProduct = product => ({
   options: asList(product.options || product.variantOptions || product.specifications),
   specGroups: normalizedSpecGroups(product),
   cakePaymentSettings: product.cakePaymentSettings || product.cakeOrderSettings || null,
-  images: imageRecords(product).map(image => imageUrlForPath(product.clientId, image.publicPath || image.watermarkedPath)).filter(Boolean)
+  images: imageRecords(product).map(image => imageUrlForPath(product.clientId, image.publicPath || image.watermarkedPath)).filter(Boolean),
+  colorImages: colorImageRecords(product)
 });
 
 const ADDIS_AREA_WORDS = [
@@ -695,6 +713,7 @@ export function createMiniappRoutes(deps) {
     isProductBusiness = () => true,
     activeClientProducts,
     answerProductflowSupportQuestion = null,
+    answerWebsiteCommerceQuestion = null,
     buildReply = null,
     isMissingKnowledgeReply = () => false,
     prepareCustomerReply = value => String(value || '')
@@ -814,8 +833,18 @@ export function createMiniappRoutes(deps) {
     return message;
   };
 
+  const catalogProductsForClient = (data, client) => (
+    (activeClientProducts
+      ? activeClientProducts(data, client.id)
+      : (data.products || []).filter(product => product.clientId === client.id))
+      .filter(productAllowsCatalog)
+  );
+
   const supportMessagesFor = (data, client, conversation) => {
     if (!conversation) return [];
+    const productMap = new Map(
+      catalogProductsForClient(data, client).map(product => [String(product.id || ''), serializeProduct(product)])
+    );
     const allowedSources = new Set([
       'miniapp_support_customer',
       'miniapp_support_local',
@@ -836,7 +865,11 @@ export function createMiniappRoutes(deps) {
         direction: message.direction,
         text: message.text,
         source: message.source,
-        createdAt: message.createdAt
+        createdAt: message.createdAt,
+        products: (Array.isArray(message.productIds) ? message.productIds : [])
+          .map(id => productMap.get(String(id || '')))
+          .filter(Boolean)
+          .slice(0, 4)
       }));
   };
 
@@ -1274,7 +1307,25 @@ export function createMiniappRoutes(deps) {
 
     let reply = '';
     let source = 'human_handoff';
-    if (typeof answerProductflowSupportQuestion === 'function') {
+    let matchedProducts = [];
+    const catalogProducts = catalogProductsForClient(data, client);
+    if (typeof answerWebsiteCommerceQuestion === 'function') {
+      const commerce = await answerWebsiteCommerceQuestion({
+        data,
+        client,
+        conversation,
+        question,
+        catalogProducts
+      }).catch(error => {
+        console.warn(`Website support commerce lookup failed for ${client.businessName}:`, error.message);
+        return null;
+      });
+      if (commerce?.reply) {
+        reply = prepareCustomerReply(commerce.reply, client);
+        source = commerce.source || 'shop_info';
+        matchedProducts = Array.isArray(commerce.products) ? commerce.products : [];
+      }
+    } else if (typeof answerProductflowSupportQuestion === 'function') {
       const local = await answerProductflowSupportQuestion(data, client, conversation, question).catch(error => {
         console.warn(`Website support fact lookup failed for ${client.businessName}:`, error.message);
         return null;
@@ -1354,7 +1405,13 @@ export function createMiniappRoutes(deps) {
         conversation,
         'outbound',
         reply,
-        source === 'ai' ? 'miniapp_support_ai' : 'miniapp_support_local'
+        source === 'ai' ? 'miniapp_support_ai' : 'miniapp_support_local',
+        {
+          productIds: matchedProducts
+            .map(product => String(product?.id || '').trim())
+            .filter(Boolean)
+            .slice(0, 4)
+        }
       );
     }
 

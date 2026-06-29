@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createMiniappRoutes } from './src/routes/miniapp-routes.js';
 import { createProductService } from './src/services/product-service.js';
+import { createWebsiteSupportService } from './src/services/website-support-service.js';
 import { defaultSettings, isProductBusiness } from './src/config/defaults.js';
 import {
   MINIAPP_TEMPLATE_IDS,
@@ -128,6 +129,9 @@ let data = {
         { publicPath: 'watch.watermarked-5.jpg' },
         { publicPath: 'watch.watermarked-6-ignored.jpg' }
       ],
+      colorImages: [
+        { color: 'Black', publicPath: 'watch.black.watermarked.jpg' }
+      ],
       colors: ['Black'],
       specGroups: [
         { key: 'color', label: 'Color', field: 'color', values: ['Black'] },
@@ -197,6 +201,14 @@ const { activeClientProducts } = createProductService({
   defaultSettings
 });
 
+const { answerCommerceQuestion: answerWebsiteCommerceQuestion } = createWebsiteSupportService({
+  answerProductflowSupportQuestion: async (_data, _client, _conversation, question) => (
+    /delivery to bole/i.test(question)
+      ? { reply: 'Delivery to Bole is 80 Birr. Maximum delivery time is 5 hours.' }
+      : null
+  )
+});
+
 const app = express();
 app.use(express.json());
 const uidCounts = {};
@@ -225,6 +237,7 @@ app.use(createMiniappRoutes({
       return { action: 'verified', reason: 'Verified in test.', reference: 'FT123456789', amount: Number(order.paymentDueNow || order.total || 0), verifyRequestId: 'verify_1' };
     }
   },
+  answerWebsiteCommerceQuestion,
   answerProductflowSupportQuestion: async (_data, _client, _conversation, question) => (
     /delivery to bole/i.test(question)
       ? { reply: 'Delivery to Bole is 80 Birr. Maximum delivery time is 5 hours.' }
@@ -264,6 +277,9 @@ try {
   assert.equal(catalog.products[0].images.length, 5);
   assert.equal(catalog.products[0].images[0], '/uploads/products/client_1/watch.watermarked-1.jpg');
   assert.equal(catalog.products[0].images[4], '/uploads/products/client_1/watch.watermarked-5.jpg');
+  assert.deepEqual(catalog.products[0].colorImages, [
+    { color: 'Black', image: '/uploads/products/client_1/watch.black.watermarked.jpg' }
+  ]);
   assert.equal(catalog.products[0].specGroups.length, 2);
   const laptop = catalog.products.find(product => product.id === 'p_laptop_legacy');
   assert.ok(laptop);
@@ -363,6 +379,70 @@ try {
   assert.match(localSupport.reply, /80 Birr/);
   assert.equal(data.unansweredQuestions.length, 0);
 
+  const productSupportResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Do you have a black watch?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device'
+    })
+  });
+  assert.equal(productSupportResponse.status, 200);
+  const productSupport = await productSupportResponse.json();
+  assert.equal(productSupport.source, 'shop_info');
+  assert.match(productSupport.reply, /Smart Fitness Watch/i);
+  assert.match(productSupport.reply, /4,500 Birr/i);
+  assert.equal(productSupport.messages.at(-1).products.length, 1);
+  assert.equal(productSupport.messages.at(-1).products[0].id, 'p_active');
+
+  const laptopSupportResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Do you have a business laptop?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device'
+    })
+  });
+  assert.equal(laptopSupportResponse.status, 200);
+  const laptopSupport = await laptopSupportResponse.json();
+  assert.equal(laptopSupport.source, 'shop_info');
+  assert.match(laptopSupport.reply, /Business Laptop/i);
+  assert.equal(laptopSupport.messages.at(-1).products[0].id, 'p_laptop_legacy');
+
+  const laptopRamResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Do you have 16GB RAM?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device'
+    })
+  });
+  assert.equal(laptopRamResponse.status, 200);
+  const laptopRamSupport = await laptopRamResponse.json();
+  assert.equal(laptopRamSupport.source, 'shop_info');
+  assert.match(laptopRamSupport.reply, /16GB/i);
+  assert.equal(laptopRamSupport.waitingForTeam, false);
+  assert.equal(laptopRamSupport.messages.at(-1).products[0].id, 'p_laptop_legacy');
+
+  const laptopMissingRamResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      message: 'Do you have 32GB RAM?',
+      fullName: 'Daniel MiniApp',
+      shopperSessionId: 'ss_test_device'
+    })
+  });
+  assert.equal(laptopMissingRamResponse.status, 200);
+  const laptopMissingRamSupport = await laptopMissingRamResponse.json();
+  assert.equal(laptopMissingRamSupport.source, 'shop_info');
+  assert.equal(laptopMissingRamSupport.waitingForTeam, false);
+  assert.match(laptopMissingRamSupport.reply, /could not find that exact option/i);
+  assert.match(laptopMissingRamSupport.reply, /16GB RAM/i);
+
   const aiSupportResponse = await fetch(`${base}/api/miniapp/shop/demo-retail-shop/support`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -401,7 +481,7 @@ try {
   assert.equal(supportHistoryResponse.status, 200);
   const supportHistory = await supportHistoryResponse.json();
   assert.equal(supportHistory.waitingForTeam, true);
-  assert.equal(supportHistory.messages.length, 6);
+  assert.equal(supportHistory.messages.length, 14);
   assert.equal(supportHistory.messages.at(-1).source, 'miniapp_support_handoff');
 
   const viewEventBody = {

@@ -30,6 +30,7 @@ import { createIntentRecoveryService } from './src/services/intent-recovery-serv
 import { createAnnouncementService } from './src/services/announcement-service.js';
 import { createShopperOutreachService } from './src/services/shopper-outreach-service.js';
 import { createPaymentVerificationService } from './src/services/payment-verification-service.js';
+import { createWebsiteSupportService } from './src/services/website-support-service.js';
 import { createWatermarkedProductImage, watermarkedPathForOriginal } from './src/services/product-watermark-service.js';
 import { createPlatformStore } from './src/store/platform-store.js';
 import {
@@ -843,6 +844,12 @@ const {
   salesStageLabel
 });
 
+const {
+  answerCommerceQuestion: answerWebsiteCommerceQuestion
+} = createWebsiteSupportService({
+  answerProductflowSupportQuestion
+});
+
 
 const {
   createProductPost,
@@ -1038,6 +1045,7 @@ const routeDeps = {
     Telegraf,
     addAuditLog,
     answerProductflowSupportQuestion,
+    answerWebsiteCommerceQuestion,
     bookingNextAction,
     bookingStatusCustomerMessage,
     botDebugForClient,
