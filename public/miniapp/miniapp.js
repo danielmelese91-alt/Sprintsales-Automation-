@@ -1021,7 +1021,7 @@
     if (values.length === 1) {
       var singleColorImage = isColorGroup ? colorImageFor(product, values[0]) : null;
       if (singleColorImage) {
-        return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="option-row color-single-row"><button type="button" class="single-option color-single-photo active" data-color-preview="' + esc(values[0]) + '" aria-label="Select ' + esc(values[0]) + ' color"><img src="' + esc(singleColorImage.image) + '" alt="' + esc(values[0]) + ' color"><span class="sr-only">' + esc(values[0]) + '</span></button></div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
+        return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="option-row color-single-row"><button type="button" class="single-option color-single-photo" data-color-preview="' + esc(values[0]) + '" aria-label="Select ' + esc(values[0]) + ' color"><img src="' + esc(singleColorImage.image) + '" alt="' + esc(values[0]) + ' color"><span class="sr-only">' + esc(values[0]) + '</span></button></div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
       }
       return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="single-option">' + esc(values[0]) + '</div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
     }
