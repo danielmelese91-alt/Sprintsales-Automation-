@@ -811,7 +811,7 @@
     '</nav>';
   }
 
-  function renderTrustFooter(hasBottomNav, hasStickyBuy) {
+  function renderTrustFooter(hasBottomNav, hasStickyBuy, showAbout) {
     var shop = state.shop || {};
     var telegram = botUrl();
     var map = shop.mapUrl || mapsUrl(shop.addressLine || '');
@@ -823,11 +823,15 @@
       telegram ? '<a href="' + esc(telegram) + '" target="_blank" rel="noopener">' + svgIcon('shop') + '<span>Telegram</span></a>' : '',
       phone ? '<a href="tel:' + esc(phone.replace(/[^\d+]/g, '')) + '">' + svgIcon('phone') + '<span>Call us</span></a>' : ''
     ].filter(Boolean).join('');
-    var footerClass = hasBottomNav ? 'has-bottom-nav' : (hasStickyBuy ? 'has-sticky-buy' : '');
+    var footerClass = [
+      hasBottomNav ? 'has-bottom-nav' : '',
+      hasStickyBuy ? 'has-sticky-buy' : '',
+      showAbout ? '' : 'compact'
+    ].filter(Boolean).join(' ');
     return '<footer class="storefront-footer ' + footerClass + '">' +
-      '<div class="footer-main"><div class="footer-brand"><small class="footer-kicker">About us</small><b>' + esc(businessName) + '</b><p>' +
+      '<div class="footer-main">' + (showAbout ? '<div class="footer-brand"><small class="footer-kicker">About us</small><b>' + esc(businessName) + '</b><p>' +
           esc(shortText(shop.summary || shop.firstTimeWelcomeMessage || 'Browse, order, and follow your purchase from this shop.', 180)) +
-        '</p>' + (shop.addressLine ? '<small class="footer-address">' + svgIcon('location') + esc(shop.addressLine) + '</small>' : '') + '</div>' +
+        '</p>' + (shop.addressLine ? '<small class="footer-address">' + svgIcon('location') + esc(shop.addressLine) + '</small>' : '') + '</div>' : '') +
         (links ? '<nav class="footer-links" aria-label="Shop contact links">' + links + '</nav>' : '') +
       '</div>' +
       '<div class="footer-bottom"><span>&copy; ' + year + ' ' + esc(businessName) + '. All rights reserved.</span><a href="https://sprintsales.net/" target="_blank" rel="noopener">Powered by <b>SprintSales</b></a></div>' +
@@ -1405,9 +1409,10 @@
 
   function render() {
     var shouldShowBottomNav = !state.selectedProduct && !state.orderResult;
+    var shouldShowFooterAbout = state.view === 'catalog' && !state.selectedProduct && !state.orderResult;
     app.innerHTML = renderAppHeader() +
       '<div id="storefront-content" tabindex="-1">' + currentBody() + '</div>' +
-      renderTrustFooter(shouldShowBottomNav, Boolean(state.selectedProduct)) +
+      renderTrustFooter(shouldShowBottomNav, Boolean(state.selectedProduct), shouldShowFooterAbout) +
       (shouldShowBottomNav ? renderBottomNav() : '') +
       renderImageViewer();
     updateDocumentMetadata();

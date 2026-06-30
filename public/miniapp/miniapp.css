@@ -5052,6 +5052,20 @@ img.is-broken {
   margin: 0 auto;
 }
 
+.storefront-footer.compact {
+  margin-top: 30px;
+  padding-top: 22px;
+}
+
+.storefront-footer.compact .footer-main {
+  display: block;
+}
+
+.storefront-footer.compact .footer-links {
+  justify-content: flex-start;
+  margin: 0 0 18px;
+}
+
 .footer-brand {
   max-width: 620px;
 }
@@ -5192,6 +5206,14 @@ img.is-broken {
     justify-content: flex-end;
     align-content: start;
     margin-top: 0;
+  }
+
+  .storefront-footer.compact .footer-main {
+    display: block;
+  }
+
+  .storefront-footer.compact .footer-links {
+    justify-content: flex-start;
   }
 
 }
