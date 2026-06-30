@@ -5408,6 +5408,10 @@ body.template-editorial .compact-product .photo-wrap {
     width: 100%;
   }
 
+  .catalog-filter-controls.has-category-filter {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .catalog-filter > span {
     position: absolute;
     width: 1px;

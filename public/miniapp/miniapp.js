@@ -945,13 +945,17 @@
 
   function renderToolbar(products) {
     var source = catalogProductsBeforeOptionFilters();
+    var categoryNames = uniqueFilterValues((state.categories || []).map(function (item) {
+      return item && item.name;
+    }));
+    var hasCategoryFilter = categoryNames.length > 1;
     var sizes = uniqueFilterValues(source.reduce(function (all, product) {
       return all.concat(productFilterValues(product, 'size'));
     }, []));
     var colors = uniqueFilterValues(source.reduce(function (all, product) {
       return all.concat(productFilterValues(product, 'color'));
     }, []));
-    var hasFilters = Boolean(state.filterSize || state.filterColor);
+    var hasFilters = Boolean(state.category !== 'All' || state.subcategory !== 'All' || state.saleOnly || state.filterSize || state.filterColor);
     var select = function (id, label, selected, values) {
       if (values.length < 2 && !selected) return '';
       return '<label class="catalog-filter"><span>' + label + '</span><select id="' + id + '">' +
@@ -963,7 +967,13 @@
     };
     return '<section class="catalog-toolbar" aria-label="Sort and filter items">' +
       '<div class="catalog-result-count"><b>' + esc(products.length) + '</b><span>item' + (products.length === 1 ? '' : 's') + '</span></div>' +
-      '<div class="catalog-filter-controls">' +
+      '<div class="catalog-filter-controls ' + (hasCategoryFilter ? 'has-category-filter' : '') + '">' +
+        (hasCategoryFilter ? '<label class="catalog-filter"><span>Category</span><select id="category-filter">' +
+          '<option value="All">All categories</option>' +
+          categoryNames.map(function (name) {
+            return '<option value="' + esc(name) + '" ' + (state.category === name ? 'selected' : '') + '>' + esc(name) + '</option>';
+          }).join('') +
+        '</select></label>' : '') +
         '<label class="catalog-filter"><span>Sort</span><select id="sort-select">' +
           '<option value="featured" ' + (state.sort === 'featured' ? 'selected' : '') + '>Recommended</option>' +
           '<option value="newest" ' + (state.sort === 'newest' ? 'selected' : '') + '>Newest</option>' +
@@ -1611,6 +1621,18 @@
   }
 
   function bindToolbarEvents() {
+    var categoryFilter = document.getElementById('category-filter');
+    if (categoryFilter) {
+      categoryFilter.addEventListener('change', function () {
+        state.category = categoryFilter.value || 'All';
+        state.subcategory = 'All';
+        state.saleOnly = false;
+        state.filterSize = '';
+        state.filterColor = '';
+        void trackMiniappEvent('category_view', { category: state.category, source: 'filter' });
+        refreshCatalogBody();
+      });
+    }
     var sortSelect = document.getElementById('sort-select');
     if (sortSelect) {
       sortSelect.addEventListener('change', function () {
@@ -1630,6 +1652,9 @@
     });
     var clearFilters = document.querySelector('[data-clear-option-filters]');
     if (clearFilters) clearFilters.addEventListener('click', function () {
+      state.category = 'All';
+      state.subcategory = 'All';
+      state.saleOnly = false;
       state.filterSize = '';
       state.filterColor = '';
       refreshCatalogBody();
