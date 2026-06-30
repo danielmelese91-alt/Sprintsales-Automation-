@@ -1021,7 +1021,7 @@
     if (values.length === 1) {
       var singleColorImage = isColorGroup ? colorImageFor(product, values[0]) : null;
       if (singleColorImage) {
-        return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="option-row color-single-row"><button type="button" class="single-option color-single-photo active" data-color-preview="' + esc(values[0]) + '" aria-label="Preview ' + esc(values[0]) + ' color"><img src="' + esc(singleColorImage.image) + '" alt="' + esc(values[0]) + ' color"><span class="sr-only">' + esc(values[0]) + '</span></button><button type="button" class="single-option color-name-option active" data-color-preview="' + esc(values[0]) + '">' + esc(values[0]) + '</button></div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
+        return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="option-row color-single-row"><button type="button" class="single-option color-single-photo active" data-color-preview="' + esc(values[0]) + '" aria-label="Select ' + esc(values[0]) + ' color"><img src="' + esc(singleColorImage.image) + '" alt="' + esc(values[0]) + ' color"><span class="sr-only">' + esc(values[0]) + '</span></button></div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
       }
       return '<div class="option-group compact-option"><label>' + esc(group.label) + '</label><div class="single-option">' + esc(values[0]) + '</div><input type="hidden" name="spec-' + esc(group.key) + '" value="' + esc(values[0]) + '"></div>';
     }
@@ -1030,7 +1030,7 @@
       var checked = isColorGroup && state.selectedColor && String(value).toLowerCase() === state.selectedColor.toLowerCase();
       var colorImage = isColorGroup ? colorImageFor(product, value) : null;
       var optionContent = colorImage
-        ? '<span class="color-photo-swatch"><img src="' + esc(colorImage.image) + '" alt="' + esc(value) + ' color"></span><span class="color-name-option">' + esc(value) + '</span>'
+        ? '<span class="color-photo-swatch"><img src="' + esc(colorImage.image) + '" alt="' + esc(value) + ' color"><span class="sr-only">' + esc(value) + '</span></span>'
         : esc(value);
       return '<label class="option-pill ' + (colorImage ? 'color-photo-option' : '') + '" for="' + esc(id) + '"><input id="' + esc(id) + '" type="radio" name="spec-' + esc(group.key) + '" value="' + esc(value) + '" required' + (isColorGroup ? ' data-color-option="' + esc(value) + '"' : '') + (checked ? ' checked' : '') + '><span>' + optionContent + '</span></label>';
     }).join('') + '</div></div>';

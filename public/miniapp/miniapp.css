@@ -1261,33 +1261,6 @@ h1 {
   transform: scale(1);
 }
 
-.color-name-option {
-  cursor: pointer;
-}
-
-.color-name-option.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #ffffff;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
-}
-
-.option-pill.color-photo-option .color-name-option {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #f7fafc;
-  color: var(--ink);
-  padding: 9px 12px;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.option-pill.color-photo-option input:checked ~ .color-name-option {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #ffffff;
-}
-
 .color-single-photo img {
   width: 100%;
   height: 100%;
