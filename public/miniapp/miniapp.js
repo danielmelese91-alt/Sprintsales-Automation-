@@ -1052,8 +1052,7 @@
     if (!product) return '';
     var images = product.images || [];
     var selectedColorImage = state.selectedColor ? colorImageFor(product, state.selectedColor) : null;
-    var defaultColorImage = selectedColorImage ? null : defaultColorImageFor(product);
-    var activeImage = selectedColorImage?.image || defaultColorImage?.image || images[state.selectedImage] || images[0] || '';
+    var activeImage = selectedColorImage?.image || images[state.selectedImage] || images[0] || '';
     var specGroups = product.specGroups || [];
     var discount = percentOff(product);
     var telegram = botUrl(product);
@@ -1075,12 +1074,14 @@
       '<section class="detail-card">' +
         '<div class="detail-body">' +
           '<p class="eyebrow">' + esc(product.category || 'Item') + (product.subcategory ? ' / ' + esc(product.subcategory) : '') + '</p>' +
-          '<h2>' + esc(product.name) + '</h2>' +
-          (product.description ? '<p class="detail-desc">' + esc(product.description) + '</p>' : '') +
-          '<div class="detail-price-row"><div><strong>' + esc(money(product.price)) + '</strong>' + (moneyNumber(product.compareAtPrice) > moneyNumber(product.price) ? '<del>' + esc(money(product.compareAtPrice)) + '</del>' : '') + '</div>' +
-            '<div class="detail-price-actions"><button class="share-product-btn" type="button" data-share-product aria-label="Share ' + esc(product.name) + '">' + svgIcon('share') + '<span>Share</span></button>' +
-            codeBadge + (discount ? '<span class="detail-offer">' + discount + '% off</span>' : '') + '</div>' +
+          '<div class="detail-title-row"><h2>' + esc(product.name) + '</h2>' +
+            '<div class="detail-title-actions"><button class="share-product-btn" type="button" data-share-product aria-label="Share ' + esc(product.name) + '">' + svgIcon('share') + '<span>Share</span></button>' +
+            codeBadge + '</div>' +
           '</div>' +
+          '<div class="detail-price-row"><div><strong>' + esc(money(product.price)) + '</strong>' + (moneyNumber(product.compareAtPrice) > moneyNumber(product.price) ? '<del>' + esc(money(product.compareAtPrice)) + '</del>' : '') + '</div>' +
+            (discount ? '<span class="detail-offer">' + discount + '% off</span>' : '') +
+          '</div>' +
+          (product.description ? '<p class="detail-desc">' + esc(product.description) + '</p>' : '') +
           (telegram && !isTelegramOpen() ? '<div class="telegram-nudge"><div><b>For a better experience</b><span>Open this item in Telegram for faster support and saved chat history.</span></div><a href="' + esc(telegram) + '" target="_blank" rel="noopener">Open Telegram</a></div>' : '') +
           renderCheckoutProgress('details') +
           '<div class="order-card-title"><h3>Order this item</h3><p>Your saved account details are filled automatically.</p></div>' +
