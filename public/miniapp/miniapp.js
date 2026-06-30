@@ -12,6 +12,7 @@
     filterColor: '',
     query: '',
     selectedProduct: null,
+    productReturnView: 'catalog',
     selectedImage: 0,
     selectedColor: '',
     orderResult: null,
@@ -86,6 +87,7 @@
     var url = new URL(baseShopPath(), location.origin);
     if (state.selectedProduct) return new URL(productPath(state.selectedProduct), location.origin);
     if (state.view === 'account') url.searchParams.set('view', 'account');
+    if (state.view === 'shop') url.searchParams.set('view', 'shop');
     if (state.view === 'track') url.searchParams.set('view', 'orders');
     if (state.view === 'support') url.searchParams.set('view', 'support');
     if (state.query) url.searchParams.set('search', state.query);
@@ -143,17 +145,19 @@
     var view = String(params.get('view') || '').toLowerCase();
     state.view = view === 'account'
       ? 'account'
-      : (view === 'orders' || view === 'track' ? 'track' : (view === 'support' ? 'support' : 'catalog'));
+      : (view === 'shop' ? 'shop' : (view === 'orders' || view === 'track' ? 'track' : (view === 'support' ? 'support' : 'catalog')));
     if (product) state.view = 'catalog';
+    state.productReturnView = state.view === 'shop' ? 'shop' : 'catalog';
   }
 
   function openProduct(product, mode) {
+    state.productReturnView = state.view === 'shop' ? 'shop' : 'catalog';
     state.selectedProduct = product || null;
     state.selectedImage = 0;
     state.selectedColor = '';
     state.orderResult = null;
     state.paymentProofResult = null;
-    state.view = 'catalog';
+    state.view = state.productReturnView;
     syncHistory(mode);
     render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -805,9 +809,9 @@
   function renderBottomNav() {
     return '<nav class="bottom-nav" aria-label="Shop navigation">' +
       '<button class="' + activeClass('catalog') + '" type="button" data-view="catalog"><span>' + svgIcon('home') + '</span><b>Home</b></button>' +
+      '<button class="' + activeClass('shop') + '" type="button" data-view="shop"><span>' + svgIcon('shop') + '</span><b>Shop</b></button>' +
       '<button class="' + activeClass('support') + '" type="button" data-view="support"><span>' + svgIcon('support') + '</span><b>Support</b></button>' +
       '<button class="' + activeClass('track') + '" type="button" data-view="track"><span>' + svgIcon('orders') + '</span><b>Orders</b></button>' +
-      '<button class="' + activeClass('account') + '" type="button" data-view="account"><span>' + svgIcon('user') + '</span><b>Profile</b></button>' +
     '</nav>';
   }
 
@@ -988,32 +992,47 @@
     '</section>';
   }
 
+  function renderLatestOrderCard() {
+    var order = latestOrder();
+    return order ? '<button class="mini-order-card" type="button" data-view="track"><span>&#128722;</span><b>My Order<br><small>' + esc(order.trackingCode || order.productName || 'Recent order') + '</small></b><em>' + esc(statusLabel(order.paymentStatus || order.status)) + '</em></button>' : '';
+  }
+
   function renderCatalogBody() {
     var products = visibleProducts();
     var featuredIds = new Set(featuredProducts().map(function (product) { return String(product.id); }));
-    var separateFeatured = shouldShowFeaturedRail();
-    var gridProducts = separateFeatured
-      ? products.filter(function (product) { return !featuredIds.has(String(product.id)); })
-      : products;
-    var productGrid = gridProducts.length
-      ? '<section class="grid">' + gridProducts.map(renderProduct).join('') + '</section>'
-      : (separateFeatured ? '' : '<section class="empty-box"><strong>No items found</strong><p>Try another category or search term.</p></section>');
-    var order = latestOrder();
-    var orderCard = order ? '<button class="mini-order-card" type="button" data-view="track"><span>&#128722;</span><b>My Order<br><small>' + esc(order.trackingCode || order.productName || 'Recent order') + '</small></b><em>' + esc(statusLabel(order.paymentStatus || order.status)) + '</em></button>' : '';
-    var title = state.query ? 'Search Results' : (state.category === 'All' ? (separateFeatured ? 'All Items' : 'Popular Items') : esc(state.category));
-    var gridTitle = (separateFeatured && !gridProducts.length)
-      ? ''
-      : '<section class="commerce-section-title"><h2>' + title + '</h2><button type="button" data-clear-filters>See all</button></section>';
+    var recommendations = products.filter(function (product) {
+      return !featuredIds.has(String(product.id));
+    }).slice(0, 6);
+    if (!recommendations.length) recommendations = products.slice(0, 6);
+    var recommendationGrid = recommendations.length
+      ? '<section class="grid home-product-grid">' + recommendations.map(renderProduct).join('') + '</section>'
+      : '<section class="empty-box"><strong>New items are coming soon</strong><p>Please check the shop again shortly.</p></section>';
     return '<main class="screen catalog-screen commerce-home">' +
       renderHomeIntro() +
       renderFeaturedRail() +
       renderCategoryScroller() +
       renderPromoBanner() +
+      '<section class="commerce-section-title"><h2>Recommended for you</h2><button type="button" data-view="shop">Shop all</button></section>' +
+      recommendationGrid +
+      '<button class="shop-all-cta" type="button" data-view="shop">' + svgIcon('shop') + '<span><b>Explore the full shop</b><small>Browse every available item and use filters</small></span><strong>Shop now</strong></button>' +
+      renderLatestOrderCard() +
+    '</main>';
+  }
+
+  function renderShopBody() {
+    var products = visibleProducts();
+    var title = state.query ? 'Search Results' : (state.category === 'All' ? 'All Items' : esc(state.category));
+    var productGrid = products.length
+      ? '<section class="grid">' + products.map(renderProduct).join('') + '</section>'
+      : '<section class="empty-box"><strong>No items found</strong><p>Try another category, filter, or search term.</p></section>';
+    return '<main class="screen catalog-screen shop-screen">' +
+      '<section class="shop-page-heading"><p class="eyebrow">Catalog</p><h1>Shop all</h1><p>Browse every available item and narrow the list to exactly what you need.</p></section>' +
+      renderCategoryScroller() +
       renderSubcategoryChips() +
-      gridTitle +
+      '<section class="commerce-section-title"><h2>' + title + '</h2><button type="button" data-clear-filters>See all</button></section>' +
       renderToolbar(products) +
       productGrid +
-      orderCard +
+      renderLatestOrderCard() +
     '</main>';
   }
 
@@ -1065,7 +1084,7 @@
       ? '<div class="cake-order-box"><h3>Personalize your cake</h3><label>What should we write on the cake?<textarea name="cakeWritingText" rows="2" placeholder="Example: Happy Birthday Hana"></textarea><small>If you do not want writing on the cake, leave this empty.</small></label><div class="form-grid two"><label>Needed date<input name="cakeNeededDate" type="date"></label><label>Preferred time<input name="cakeNeededTime" type="time"></label></div></div>'
       : '';
     return '<main class="screen detail-screen">' +
-      '<button class="back-inline" type="button" id="detail-back">Home</button>' +
+      '<button class="back-inline" type="button" id="detail-back">' + (state.productReturnView === 'shop' ? 'Back to shop' : 'Home') + '</button>' +
       '<section class="detail-hero">' +
         '<div class="detail-gallery">' +
           (activeImage ? '<button class="detail-image-button" type="button" data-open-image="' + esc(activeImage) + '"><img class="detail-image" src="' + esc(activeImage) + '" alt="' + esc(product.name) + '"></button>' : '<div class="detail-image empty-image">No Image</div>') +
@@ -1402,6 +1421,7 @@
     if (state.view === 'support') return renderSupportPage();
     if (state.orderResult) return renderOrderResultPage();
     if (state.selectedProduct) return renderProductPage(state.selectedProduct);
+    if (state.view === 'shop') return renderShopBody();
     return renderCatalogBody();
   }
 
@@ -1429,7 +1449,7 @@
     bindEvents();
   }
 
-  function setView(view, historyMode) {
+  function setView(view, historyMode, preserveCatalogState) {
     stopSupportPolling();
     state.view = view || 'catalog';
     state.selectedProduct = null;
@@ -1437,7 +1457,7 @@
     state.paymentProofResult = null;
     state.trackError = '';
     state.trackResult = view === 'track' ? state.trackResult : null;
-    if (state.view === 'catalog') {
+    if ((state.view === 'catalog' || state.view === 'shop') && !preserveCatalogState) {
       state.category = 'All';
       state.subcategory = 'All';
       state.saleOnly = false;
@@ -1457,10 +1477,10 @@
   }
 
   function refreshCatalogBody() {
-    if (state.selectedProduct || state.orderResult || state.view !== 'catalog') return render();
+    if (state.selectedProduct || state.orderResult || (state.view !== 'catalog' && state.view !== 'shop')) return render();
     var catalog = document.querySelector('.catalog-screen');
     if (!catalog) return render();
-    catalog.outerHTML = renderCatalogBody();
+    catalog.outerHTML = state.view === 'shop' ? renderShopBody() : renderCatalogBody();
     bindSearchBoxEvents();
     bindCatalogEvents();
     bindToolbarEvents();
@@ -1511,7 +1531,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-toggle-search]'), function (searchToggle) {
       searchToggle.addEventListener('click', function () {
         state.searchOpen = !state.searchOpen;
-        state.view = 'catalog';
+        state.view = 'shop';
         state.selectedProduct = null;
         state.orderResult = null;
         syncHistory();
@@ -1664,17 +1684,25 @@
   function bindCatalogEvents() {
     Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (button) {
       button.addEventListener('click', function () {
+        var openedFromHome = state.view === 'catalog';
         state.category = button.getAttribute('data-category') || 'All';
         state.subcategory = 'All';
         state.saleOnly = false;
         state.filterSize = '';
         state.filterColor = '';
         void trackMiniappEvent('category_view', { category: state.category });
-        refreshCatalogBody();
+        if (openedFromHome) {
+          state.view = 'shop';
+          syncHistory();
+          render();
+        } else {
+          refreshCatalogBody();
+        }
       });
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-tile-category]'), function (button) {
       button.addEventListener('click', function () {
+        var openedFromHome = state.view === 'catalog';
         state.saleOnly = button.getAttribute('data-tile-sale') === '1';
         state.category = state.saleOnly ? 'All' : (button.getAttribute('data-tile-category') || 'All');
         state.subcategory = state.saleOnly ? 'All' : (button.getAttribute('data-tile-subcategory') || 'All');
@@ -1685,7 +1713,13 @@
           category: state.category,
           subcategory: state.subcategory
         });
-        refreshCatalogBody();
+        if (openedFromHome) {
+          state.view = 'shop';
+          syncHistory();
+          render();
+        } else {
+          refreshCatalogBody();
+        }
       });
     });
     Array.prototype.forEach.call(document.querySelectorAll('.subchip'), function (button) {
@@ -1876,7 +1910,7 @@
   function bindDetailEvents() {
     var detailBack = document.getElementById('detail-back');
     if (detailBack) detailBack.addEventListener('click', function () {
-      setView('catalog');
+      setView(state.productReturnView === 'shop' ? 'shop' : 'catalog', undefined, true);
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-thumb]'), function (button) {
       button.addEventListener('click', function () {
