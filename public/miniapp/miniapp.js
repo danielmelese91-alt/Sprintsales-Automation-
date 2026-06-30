@@ -811,37 +811,26 @@
     '</nav>';
   }
 
-  function safeExternalUrl(value) {
-    var text = String(value || '').trim();
-    if (!text) return '';
-    if (/^@[\w_]+$/.test(text)) return 'https://t.me/' + text.slice(1);
-    if (/^[\w_]+$/.test(text)) return 'https://t.me/' + text;
-    try {
-      var url = new URL(text, location.origin);
-      return /^https?:$/.test(url.protocol) ? url.toString() : '';
-    } catch (error) {
-      return '';
-    }
-  }
-
-  function renderTrustFooter() {
+  function renderTrustFooter(hasBottomNav, hasStickyBuy) {
     var shop = state.shop || {};
     var telegram = botUrl();
-    var channel = safeExternalUrl(shop.channelUrl);
     var map = shop.mapUrl || mapsUrl(shop.addressLine || '');
     var phone = String(shop.contactPhone || '').trim();
+    var businessName = shop.businessName || 'Online shop';
+    var year = new Date().getFullYear();
     var links = [
       map ? '<a href="' + esc(map) + '" target="_blank" rel="noopener">' + svgIcon('location') + '<span>Find us</span></a>' : '',
-      telegram ? '<a href="' + esc(telegram) + '" target="_blank" rel="noopener">' + svgIcon('shop') + '<span>Telegram shop</span></a>' : '',
-      channel ? '<a href="' + esc(channel) + '" target="_blank" rel="noopener">' + svgIcon('phone') + '<span>Updates</span></a>' : '',
-      phone ? '<a href="tel:' + esc(phone.replace(/[^\d+]/g, '')) + '">' + svgIcon('phone') + '<span>Call shop</span></a>' : ''
+      telegram ? '<a href="' + esc(telegram) + '" target="_blank" rel="noopener">' + svgIcon('shop') + '<span>Telegram</span></a>' : '',
+      phone ? '<a href="tel:' + esc(phone.replace(/[^\d+]/g, '')) + '">' + svgIcon('phone') + '<span>Call us</span></a>' : ''
     ].filter(Boolean).join('');
-    return '<footer class="storefront-footer">' +
-      '<div class="footer-brand"><b>' + esc(shop.businessName || 'Online shop') + '</b><p>' +
-        esc(shortText(shop.summary || shop.firstTimeWelcomeMessage || 'Browse, order, and follow your purchase from this shop.', 150)) +
-      '</p>' + (shop.addressLine ? '<small>' + esc(shop.addressLine) + '</small>' : '') + '</div>' +
-      (links ? '<nav class="footer-links" aria-label="Shop contact links">' + links + '</nav>' : '') +
-      '<div class="footer-bottom"><span>Orders and updates are managed through this shop.</span><b>Powered by SprintSales</b></div>' +
+    var footerClass = hasBottomNav ? 'has-bottom-nav' : (hasStickyBuy ? 'has-sticky-buy' : '');
+    return '<footer class="storefront-footer ' + footerClass + '">' +
+      '<div class="footer-main"><div class="footer-brand"><small class="footer-kicker">About us</small><b>' + esc(businessName) + '</b><p>' +
+          esc(shortText(shop.summary || shop.firstTimeWelcomeMessage || 'Browse, order, and follow your purchase from this shop.', 180)) +
+        '</p>' + (shop.addressLine ? '<small class="footer-address">' + svgIcon('location') + esc(shop.addressLine) + '</small>' : '') + '</div>' +
+        (links ? '<nav class="footer-links" aria-label="Shop contact links">' + links + '</nav>' : '') +
+      '</div>' +
+      '<div class="footer-bottom"><span>&copy; ' + year + ' ' + esc(businessName) + '. All rights reserved.</span><a href="https://sprintsales.net/" target="_blank" rel="noopener">Powered by <b>SprintSales</b></a></div>' +
     '</footer>';
   }
 
@@ -1418,7 +1407,7 @@
     var shouldShowBottomNav = !state.selectedProduct && !state.orderResult;
     app.innerHTML = renderAppHeader() +
       '<div id="storefront-content" tabindex="-1">' + currentBody() + '</div>' +
-      renderTrustFooter() +
+      renderTrustFooter(shouldShowBottomNav, Boolean(state.selectedProduct)) +
       (shouldShowBottomNav ? renderBottomNav() : '') +
       renderImageViewer();
     updateDocumentMetadata();
